@@ -359,7 +359,7 @@ function Overview({
 
       <Card>
         <CardHeader title="State" />
-        <div className="px-4 py-1">
+        <div className="py-1">
           <DataRow label="Uptime" value={uptime === null ? '—' : formatDuration(uptime)} />
           <DataRow label="Started" value={formatRelative(detail.startedAt)} />
           <DataRow label="Last stopped" value={formatRelative(detail.stoppedAt)} />
@@ -382,7 +382,7 @@ function Overview({
 
       <Card>
         <CardHeader title="Runtime" />
-        <div className="px-4 py-1">
+        <div className="py-1">
           <DataRow label="Type" value={runtimeLabel(detail.projectType)} />
           {detail.runtime ? (
             <>
@@ -417,7 +417,7 @@ function Overview({
             </>
           }
         />
-        <div className="px-4 py-1">
+        <div className="py-1">
           <DataRow label="Source" value={detail.sourceType.toLowerCase()} />
           {detail.sourceUrl && <DataRow label="Remote" value={detail.sourceUrl} mono />}
           {detail.sourceRef && <DataRow label="Reference" value={detail.sourceRef} mono />}
@@ -439,7 +439,7 @@ function Overview({
         ) : activity.length === 0 ? (
           <p className="px-4 py-5 text-[13px] text-muted">Nothing recorded for this project yet.</p>
         ) : (
-          <ul className="px-4 py-1">
+          <ul className="py-1">
             {activity.slice(0, 8).map((entry) => (
               <li
                 key={entry.id}
@@ -577,7 +577,7 @@ function History({ events, detail }: { events: ContainerEvent[] | null; detail: 
 
       <Card>
         <CardHeader title="Summary" />
-        <div className="px-4 py-1">
+        <div className="py-1">
           <DataRow label="Restarts" value={detail.restartCount} />
           <DataRow
             label="Last exit code"
@@ -628,7 +628,7 @@ function Networking({ detail }: { detail: Detail }) {
 
       <Card>
         <CardHeader title="Network" />
-        <div className="px-4 py-1">
+        <div className="py-1">
           <DataRow label="Mode" value={detail.networkMode.toLowerCase()} />
           <DataRow label="Container" value={detail.containerName ?? '—'} mono />
           <DataRow label="Image" value={detail.imageTag ?? '—'} mono />
@@ -726,7 +726,7 @@ function Resources({
       <PowerCard detail={detail} project={project} onChanged={onChanged} />
       <Card>
         <CardHeader title="Limits" subtitle="What this project is allowed to use" />
-        <div className="px-4 py-1">
+        <div className="py-1">
           <DataRow
             label="Memory"
             value={
@@ -864,7 +864,7 @@ function Settings({ detail }: { detail: Detail; onChanged: () => void }) {
     <div className="grid gap-4 lg:grid-cols-2">
       <Card>
         <CardHeader title="Identity" />
-        <div className="px-4 py-1">
+        <div className="py-1">
           <DataRow label="Name" value={detail.displayName} />
           <DataRow label="Slug" value={detail.slug} mono />
           <DataRow label="Description" value={detail.description || '—'} />
@@ -874,7 +874,7 @@ function Settings({ detail }: { detail: Detail; onChanged: () => void }) {
 
       <Card>
         <CardHeader title="Behaviour" />
-        <div className="px-4 py-1">
+        <div className="py-1">
           <DataRow label="Autostart" value={detail.autostart ? 'on' : 'off'} />
           <DataRow label="Restart policy" value={detail.restartPolicy.toLowerCase()} />
           <DataRow label="Updated" value={formatRelative(detail.updatedAt)} />

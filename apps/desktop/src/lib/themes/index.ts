@@ -40,8 +40,13 @@ export function themesInCategory(category: CategoryId): readonly Theme[] {
   return BY_CATEGORY[category];
 }
 
-/** The theme a fresh installation opens on. */
-export const DEFAULT_THEME_ID = 'pure-dark';
+/** The theme a fresh installation opens on.
+ *
+ * `panel-warm` rather than `pure-dark`: it is the palette the application was
+ * designed in, so it is what the screens were drawn against. The charcoal
+ * default remains in the catalogue for anyone who prefers a neutral ground.
+ */
+export const DEFAULT_THEME_ID = 'panel-warm';
 
 /**
  * What the five original ids became.

@@ -23,8 +23,13 @@ describe('the catalogue', () => {
   it('gives every category the ten it promises', () => {
     for (const category of CATEGORIES) {
       const inGroup = THEMES.filter((theme) => theme.category === category.id);
-      // Minimal carries the extras kept for migration.
-      const expected = category.id === 'minimal' ? 11 : 10;
+      // Minimal carries the extras kept for migration. Developer carries one
+      // more than ten because `panel-warm` is the application's own palette
+      // rather than a borrowed one — it is the default a fresh installation
+      // opens on, and it lives in the catalogue so that a user who wanders off
+      // it can find their way back.
+      const extras: Partial<Record<string, number>> = { minimal: 11, developer: 11 };
+      const expected = extras[category.id] ?? 10;
       expect(inGroup.length, `${category.id} has ${inGroup.length}`).toBe(expected);
     }
   });

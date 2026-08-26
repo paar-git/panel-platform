@@ -252,7 +252,7 @@ export default function Settings({
           <div className="grid gap-4 lg:grid-cols-2">
             <Card>
               <CardHeader title="This window" subtitle="Preferences stored on this machine" />
-              <div className="px-4 py-1">
+              <div className="py-1">
                 <Toggle
                   checked={preferences.collapsedSidebar}
                   onChange={(collapsedSidebar) => onPreferences({ collapsedSidebar })}
@@ -289,7 +289,7 @@ export default function Settings({
                   those screens report rather than edit — change the file and restart.
                 </p>
               </div>
-              <div className="border-t border-edge px-4 py-1">
+              <div className="border-t border-edge py-1">
                 <DataRow label="Mode" value={settings?.mode ?? '—'} />
                 <DataRow label="Maximum projects" value={settings ? settings.maxProjects : '—'} />
                 <DataRow
@@ -330,7 +330,7 @@ export default function Settings({
 
             <Card>
               <CardHeader title="Behaviour" />
-              <div className="px-4 py-1">
+              <div className="py-1">
                 <Toggle
                   checked={preferences.confirmDestructive}
                   onChange={(confirmDestructive) => onPreferences({ confirmDestructive })}
@@ -361,7 +361,7 @@ export default function Settings({
                 title="Developer mode"
                 subtitle="For diagnosing this application, not your projects"
               />
-              <div className="px-4 py-1">
+              <div className="py-1">
                 <Toggle
                   checked={preferences.developerMode}
                   onChange={(developerMode) => onPreferences({ developerMode })}
@@ -438,7 +438,7 @@ export default function Settings({
 
             <Card>
               <CardHeader title="What this machine is doing" />
-              <div className="px-4 py-1">
+              <div className="py-1">
                 <DataRow
                   label="In force"
                   value={
@@ -497,7 +497,7 @@ export default function Settings({
                   hour produces one line, not eighteen hundred.
                 </p>
               ) : (
-                <ul className="px-4 py-1">
+                <ul className="py-1">
                   {journal.map((entry) => (
                     <li key={entry.seq} className="border-b border-edge/60 py-2 last:border-b-0">
                       <div className="flex items-baseline justify-between gap-3">
@@ -524,7 +524,7 @@ export default function Settings({
                   </Button>
                 }
               />
-              <div className="px-4 py-1">
+              <div className="py-1">
                 {pathRow('Data', settings?.dataDir)}
                 {pathRow('Projects', settings?.projectsDir)}
                 {pathRow('Logs', settings?.logsDir)}
@@ -542,7 +542,7 @@ export default function Settings({
                   <Skeleton className="h-16" />
                 </div>
               ) : (
-                <div className="px-4 py-1">
+                <div className="py-1">
                   <DataRow label="Used" value={formatBytes(metrics.diskUsedBytes)} />
                   <DataRow label="Total" value={formatBytes(metrics.diskTotalBytes)} />
                   <DataRow
@@ -564,7 +564,7 @@ export default function Settings({
               title="Host port pool"
               subtitle="Ports projects are given on this machine"
             />
-            <div className="px-4 py-1">
+            <div className="py-1">
               <DataRow
                 label="Range"
                 value={settings ? `${settings.portPoolStart}–${settings.portPoolEnd}` : '—'}
@@ -598,7 +598,7 @@ export default function Settings({
                 </Button>
               }
             />
-            <div className="px-4 py-1">
+            <div className="py-1">
               <DataRow label="Installed version" value={status?.appVersion ?? '—'} />
               <DataRow label="Release channel" value="stable" />
               <DataRow label="Check on startup" value="on" />
@@ -617,7 +617,7 @@ export default function Settings({
           <div className="grid gap-4 lg:grid-cols-2">
             <Card className="max-w-xl">
               <CardHeader title="Logging" subtitle="What the core writes to disk" />
-              <div className="px-4 py-1">
+              <div className="py-1">
                 <DataRow label="Level" value={settings?.logLevel ?? '—'} />
                 <DataRow
                   label="Format"
@@ -639,7 +639,7 @@ export default function Settings({
                 title="This launch"
                 subtitle="Which stage took time, so a slow start names its cause"
               />
-              <div className="px-4 py-1">
+              <div className="py-1">
                 <DataRow label="Total" value={launch ? `${launch.totalMs} ms` : '—'} />
                 {(launch?.stages ?? []).map((stage) => (
                   <DataRow
@@ -661,7 +661,7 @@ export default function Settings({
           <div className="grid gap-4 lg:grid-cols-2">
             <Card>
               <CardHeader title="Application" />
-              <div className="px-4 py-1">
+              <div className="py-1">
                 <DataRow label="Version" value={status?.appVersion ?? '—'} />
                 <DataRow label="Database schema" value={status?.schemaVersion ?? '—'} />
                 <DataRow
@@ -679,7 +679,7 @@ export default function Settings({
                   <Skeleton className="h-24" />
                 </div>
               ) : (
-                <div className="px-4 py-1">
+                <div className="py-1">
                   <DataRow label="Logical cores" value={metrics.cpuCount} />
                   <DataRow label="Memory" value={formatBytes(metrics.memoryTotalBytes)} />
                   <DataRow label="Projects volume" value={metrics.diskMount || '—'} mono />

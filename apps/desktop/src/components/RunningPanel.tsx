@@ -135,7 +135,7 @@ export default function RunningPanel({ onOpenProject }: { onOpenProject?: (id: s
 
       <Card>
         <CardHeader title="This machine" subtitle="What is left after what is running" />
-        <div className="px-4 py-1">
+        <div className="py-1">
           <DataRow
             label="Memory in use"
             value={

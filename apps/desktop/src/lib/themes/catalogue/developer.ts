@@ -18,6 +18,37 @@ import type { Theme } from '../types';
 
 export const DEVELOPER_THEMES: readonly Theme[] = [
   {
+    id: 'panel-warm',
+    name: 'Panel Warm',
+    category: 'developer',
+    detail: 'Warm near-black with an ember accent. The redesign palette.',
+    tokens: {
+      canvas: '#0d0c0b',
+      surface: '#141211',
+      raised: '#171514',
+      overlay: '#1d1a18',
+      edge: '#221e1c',
+      edgeStrong: '#2a2523',
+      ink: '#f5f0ec',
+      muted: '#a29a94',
+      faint: '#7d756f',
+      accent: '#f2620a',
+      ok: '#4ec26a',
+      warn: '#e3a008',
+      danger: '#f0577a',
+      sidebarTop: '#100f0e',
+      sidebarBottom: '#100f0e',
+    },
+    traits: {
+      // Instrument Sans is what the design was drawn in. A theme may not pull
+      // a downloaded face, so the stack names it first for machines that have
+      // it and falls through to the grotesques that sit closest.
+      fontUi:
+        "'Instrument Sans', 'Inter', 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif",
+      fontMono: MONO,
+    },
+  },
+  {
     id: 'editor-dark',
     name: 'Editor Dark',
     category: 'developer',

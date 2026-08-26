@@ -52,7 +52,8 @@ describe('filtering', () => {
 
   it('narrows to one category', () => {
     const result = filterThemes(THEMES, { category: 'developer' });
-    expect(result).toHaveLength(10);
+    // Eleven: developer holds `panel-warm`, the application's own palette.
+    expect(result).toHaveLength(11);
     for (const theme of result) expect(theme.category).toBe('developer');
   });
 

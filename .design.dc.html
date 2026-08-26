@@ -1,0 +1,1023 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous" />
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:ital,wght@0,400..700;1,400..700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  body { margin: 0; background: #0a0908; font-family: "Instrument Sans", system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+  a { color: var(--ac, #f2620a); text-decoration: none; }
+  a:hover { color: #ff8a3d; }
+  * { box-sizing: border-box; }
+  ::selection { background: rgba(242,98,10,0.3); }
+</style>
+</helmet>
+<div style="--ac:{{ accent }}; width:1280px; height:840px; background:#0d0c0b; color:#f5f0ec; display:flex; overflow:hidden; position:relative; border:1px solid #221e1c; border-radius:14px; font-size:13.5px">
+
+  <sc-if value="{{ isEditor }}" hint-placeholder-val="{{ false }}">
+    <div style="flex:1; display:flex; flex-direction:column; min-width:0">
+      <div style="height:40px; flex:none; display:flex; align-items:center; gap:14px; padding:0 12px; background:#100f0e; border-bottom:1px solid #201c1a">
+        <div onClick="{{ goProjects }}" style="width:22px; height:22px; border-radius:6px; background:var(--ac,#f2620a); display:flex; align-items:center; justify-content:center; font-weight:700; font-size:12px; color:#150c05; cursor:pointer">P</div>
+        <div style="display:flex; gap:2px; font-size:12.5px; color:#9a928c">
+          <div style="padding:4px 8px; border-radius:6px; cursor:pointer" style-hover="background:#1c1918; color:#f5f0ec">File</div>
+          <div style="padding:4px 8px; border-radius:6px; cursor:pointer" style-hover="background:#1c1918; color:#f5f0ec">Edit</div>
+          <div style="padding:4px 8px; border-radius:6px; cursor:pointer" style-hover="background:#1c1918; color:#f5f0ec">View</div>
+          <div style="padding:4px 8px; border-radius:6px; cursor:pointer" style-hover="background:#1c1918; color:#f5f0ec">Run</div>
+          <div style="padding:4px 8px; border-radius:6px; cursor:pointer" style-hover="background:#1c1918; color:#f5f0ec">Terminal</div>
+        </div>
+        <div style="flex:1; display:flex; justify-content:center">
+          <div style="display:flex; align-items:center; gap:8px; height:26px; padding:0 10px; background:#171514; border:1px solid #221e1c; border-radius:8px; color:#7d756f; font-size:12px; min-width:280px">
+            <span style="font-family:'JetBrains Mono',monospace; color:#5f5852">/</span> romi bot
+          </div>
+        </div>
+        <div style="display:flex; align-items:center; gap:8px">
+          <div style="display:flex; align-items:center; gap:6px; height:26px; padding:0 12px; border-radius:999px; background:var(--ac,#f2620a); color:#180d04; font-weight:600; font-size:12px; cursor:pointer">Run</div>
+          <div onClick="{{ goProjects }}" style="height:26px; padding:0 10px; border-radius:999px; border:1px solid #2a2523; color:#a29a94; font-size:12px; display:flex; align-items:center; cursor:pointer" style-hover="border-color:#3a332f; color:#f5f0ec">Back to workspace</div>
+        </div>
+      </div>
+
+      <div style="flex:1; display:flex; min-height:0">
+        <div style="width:44px; flex:none; background:#100f0e; border-right:1px solid #201c1a; display:flex; flex-direction:column; align-items:center; padding:8px 0; gap:4px">
+          <div style="width:30px; height:30px; border-radius:8px; background:#211d1b; box-shadow:inset 2px 0 0 var(--ac,#f2620a); display:flex; align-items:center; justify-content:center; color:#f5f0ec; font-size:13px">◧</div>
+          <div style="width:30px; height:30px; border-radius:8px; display:flex; align-items:center; justify-content:center; color:#6f6862; cursor:pointer" style-hover="background:#1a1716; color:#c9c1bb">⌕</div>
+          <div style="width:30px; height:30px; border-radius:8px; display:flex; align-items:center; justify-content:center; color:#6f6862; cursor:pointer" style-hover="background:#1a1716; color:#c9c1bb">⑃</div>
+          <div style="width:30px; height:30px; border-radius:8px; display:flex; align-items:center; justify-content:center; color:#6f6862; cursor:pointer" style-hover="background:#1a1716; color:#c9c1bb">▤</div>
+        </div>
+
+        <div style="width:230px; flex:none; background:#0f0e0d; border-right:1px solid #201c1a; display:flex; flex-direction:column">
+          <div style="padding:10px 12px 6px; font-size:10.5px; letter-spacing:0.12em; color:#6f6862; font-weight:600">FILES</div>
+          <div style="padding:0 6px; display:flex; flex-direction:column; gap:1px; font-size:12.5px; font-family:'JetBrains Mono',monospace">
+            <div style="padding:4px 8px; border-radius:6px; color:#c9c1bb; cursor:pointer" style-hover="background:#1a1716">▸ data</div>
+            <div style="padding:4px 8px; border-radius:6px; color:#c9c1bb; cursor:pointer" style-hover="background:#1a1716">▸ dist</div>
+            <div style="padding:4px 8px; border-radius:6px; color:#c9c1bb; cursor:pointer" style-hover="background:#1a1716">▸ docs</div>
+            <div style="padding:4px 8px; border-radius:6px; color:#c9c1bb; cursor:pointer" style-hover="background:#1a1716">▾ src</div>
+            <div style="padding:4px 8px 4px 22px; border-radius:6px; color:#9a928c; cursor:pointer" style-hover="background:#1a1716">index.ts</div>
+            <div style="padding:4px 8px 4px 22px; border-radius:6px; background:#211d1b; color:#f5f0ec; cursor:pointer">bot.ts</div>
+            <div style="padding:4px 8px; border-radius:6px; color:#9a928c; cursor:pointer" style-hover="background:#1a1716">.env</div>
+            <div style="padding:4px 8px; border-radius:6px; color:#9a928c; cursor:pointer" style-hover="background:#1a1716">package.json</div>
+            <div style="padding:4px 8px; border-radius:6px; color:#9a928c; cursor:pointer" style-hover="background:#1a1716">README.md</div>
+            <div style="padding:4px 8px; border-radius:6px; color:#9a928c; cursor:pointer" style-hover="background:#1a1716">tsconfig.json</div>
+          </div>
+          <div style="flex:1"></div>
+          <div style="padding:10px 12px; border-top:1px solid #1c1918; display:flex; align-items:center; gap:8px; font-size:11.5px; color:#8a827c">
+            <span style="width:6px; height:6px; border-radius:999px; background:#8a827c"></span> stopped · wants stopped
+          </div>
+        </div>
+
+        <div style="flex:1; display:flex; flex-direction:column; min-width:0; background:#0d0c0b">
+          <div style="height:34px; flex:none; display:flex; align-items:stretch; border-bottom:1px solid #201c1a; background:#100f0e">
+            <div style="display:flex; align-items:center; gap:8px; padding:0 12px; background:#0d0c0b; border-right:1px solid #201c1a; font-family:'JetBrains Mono',monospace; font-size:12px; color:#f5f0ec; box-shadow:inset 0 2px 0 var(--ac,#f2620a)">bot.ts <span style="color:#5f5852">×</span></div>
+            <div style="display:flex; align-items:center; gap:8px; padding:0 12px; border-right:1px solid #201c1a; font-family:'JetBrains Mono',monospace; font-size:12px; color:#7d756f; cursor:pointer">README.md</div>
+          </div>
+          <div style="flex:1; display:flex; align-items:center; justify-content:center; padding:24px">
+            <div style="display:flex; flex-direction:column; align-items:center; gap:18px; max-width:420px; text-align:center">
+              <div style="width:52px; height:52px; border-radius:14px; background:linear-gradient(160deg,#f0577a,#c9345c); display:flex; align-items:center; justify-content:center; font-size:22px">🤖</div>
+              <div>
+                <div style="font-size:26px; font-weight:600; letter-spacing:-0.02em">romi bot</div>
+                <div style="color:#8a827c; margin-top:4px; font-family:'JetBrains Mono',monospace; font-size:12px">brave-thicket-72a6</div>
+              </div>
+              <div style="display:flex; flex-direction:column; gap:2px; width:100%">
+                <div style="display:flex; justify-content:space-between; padding:8px 12px; border-radius:8px; color:#c9c1bb; cursor:pointer" style-hover="background:#161413">Open a file <span style="font-family:'JetBrains Mono',monospace; color:#6f6862; font-size:11.5px">⌘P</span></div>
+                <div style="display:flex; justify-content:space-between; padding:8px 12px; border-radius:8px; color:#c9c1bb; cursor:pointer" style-hover="background:#161413">New file <span style="font-family:'JetBrains Mono',monospace; color:#6f6862; font-size:11.5px">⌘N</span></div>
+                <div style="display:flex; justify-content:space-between; padding:8px 12px; border-radius:8px; color:#c9c1bb; cursor:pointer" style-hover="background:#161413">Open the shell <span style="font-family:'JetBrains Mono',monospace; color:#6f6862; font-size:11.5px">⌘`</span></div>
+              </div>
+            </div>
+          </div>
+          <div style="height:210px; flex:none; border-top:1px solid #201c1a; background:#0b0a09; display:flex; flex-direction:column">
+            <div style="height:32px; flex:none; display:flex; align-items:center; gap:4px; padding:0 8px; border-bottom:1px solid #1a1716">
+              <div style="padding:4px 10px; border-radius:999px; background:#211d1b; color:#f5f0ec; font-size:11.5px">Shell</div>
+              <div style="padding:4px 10px; border-radius:999px; color:#7d756f; font-size:11.5px; cursor:pointer" style-hover="background:#171514">Output</div>
+              <div style="padding:4px 10px; border-radius:999px; color:#7d756f; font-size:11.5px; cursor:pointer" style-hover="background:#171514">Problems</div>
+              <div style="padding:4px 10px; border-radius:999px; color:#7d756f; font-size:11.5px; cursor:pointer" style-hover="background:#171514">Logs</div>
+              <div style="flex:1"></div>
+              <div style="display:flex; gap:6px">
+                <div style="height:22px; padding:0 10px; border-radius:999px; background:var(--ac,#f2620a); color:#180d04; font-size:11.5px; font-weight:600; display:flex; align-items:center; cursor:pointer">Start</div>
+                <div style="height:22px; padding:0 10px; border-radius:999px; border:1px solid #2a2523; color:#a29a94; font-size:11.5px; display:flex; align-items:center; cursor:pointer">Restart</div>
+                <div style="height:22px; padding:0 10px; border-radius:999px; border:1px solid #2a2523; color:#a29a94; font-size:11.5px; display:flex; align-items:center; cursor:pointer">Stop</div>
+              </div>
+            </div>
+            <div style="flex:1; padding:12px 14px; font-family:'JetBrains Mono',monospace; font-size:12px; line-height:1.7; color:#8a827c; overflow:hidden">
+              <div><span style="color:var(--ac,#f2620a)">~/romibot</span> $ <span style="color:#c9c1bb">no process action has run in this session</span></div>
+              <div>use the controls above to start, stop or restart the project.</div>
+              <div style="margin-top:8px; color:#5f5852">an interactive shell and streaming logs are not built into the core yet, so this panel shows what these controls did.</div>
+              <div style="margin-top:8px"><span style="color:var(--ac,#f2620a)">~/romibot</span> $ <span style="display:inline-block; width:7px; height:14px; background:#c9c1bb; vertical-align:-2px"></span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ isApp }}" hint-placeholder-val="{{ true }}">
+    <div style="width:216px; flex:none; background:#100f0e; border-right:1px solid #201c1a; display:flex; flex-direction:column">
+      <div style="height:52px; flex:none; display:flex; align-items:center; gap:10px; padding:0 12px">
+        <div style="width:26px; height:26px; border-radius:8px; background:var(--ac,#f2620a); display:flex; align-items:center; justify-content:center; font-weight:700; font-size:13px; color:#180d04">P</div>
+        <div style="flex:1; min-width:0">
+          <div style="font-size:13px; font-weight:600; letter-spacing:-0.01em">Panel Platform</div>
+          <div style="font-size:11px; color:#7d756f; margin-top:-1px">Project workspace</div>
+        </div>
+        <div style="color:#6f6862; cursor:pointer; padding:2px 4px">···</div>
+      </div>
+
+      <div style="padding:0 8px 10px">
+        <div onClick="{{ openWizard }}" style="height:34px; border-radius:999px; background:var(--ac,#f2620a); color:#180d04; font-weight:600; font-size:12.5px; display:flex; align-items:center; justify-content:center; gap:6px; cursor:pointer" style-hover="filter:brightness(1.08)">+ New project</div>
+      </div>
+
+      <div style="padding:0 8px; display:flex; flex-direction:column; gap:1px">
+        <div onClick="{{ goOverview }}" style="{{ navOverview }}" style-hover="background:#1a1716">Overview</div>
+        <div onClick="{{ goProjects }}" style="{{ navProjects }}" style-hover="background:#1a1716">Projects <span style="margin-left:auto; font-family:'JetBrains Mono',monospace; font-size:11px; color:#7d756f; background:#211d1b; padding:1px 6px; border-radius:999px">1</span></div>
+        <div onClick="{{ goActivity }}" style="{{ navActivity }}" style-hover="background:#1a1716">Activity</div>
+        <div onClick="{{ goDiscord }}" style="{{ navDiscord }}" style-hover="background:#1a1716">Discord</div>
+        <div onClick="{{ goSettings }}" style="{{ navSettings }}" style-hover="background:#1a1716">Settings</div>
+      </div>
+
+      <div style="margin:14px 8px 6px; padding:0 8px; font-size:10.5px; letter-spacing:0.12em; color:#5f5852; font-weight:600">RECENT</div>
+      <div style="padding:0 8px">
+        <div onClick="{{ goProject }}" style="{{ navProject }}" style-hover="background:#1a1716">
+          <span style="width:18px; height:18px; border-radius:6px; background:linear-gradient(160deg,#f0577a,#c9345c); display:flex; align-items:center; justify-content:center; font-size:10px">🤖</span>
+          romi bot
+          <span style="margin-left:auto; width:6px; height:6px; border-radius:999px; background:#6f6862"></span>
+        </div>
+      </div>
+
+      <div style="flex:1"></div>
+
+      <div style="padding:10px; border-top:1px solid #1c1918; display:flex; flex-direction:column; gap:8px">
+        <div style="display:flex; align-items:center; gap:8px; padding:6px 8px; border-radius:8px; background:rgba(227,160,8,0.08); border:1px solid rgba(227,160,8,0.18); font-size:11.5px; color:#dcae4a">
+          <span style="width:6px; height:6px; border-radius:999px; background:#e3a008"></span> Docker unavailable
+        </div>
+        <div style="display:flex; align-items:center; gap:8px; padding:2px 8px; font-size:11.5px; color:#6f6862; cursor:pointer">‹ Collapse</div>
+      </div>
+    </div>
+
+    <div style="flex:1; display:flex; flex-direction:column; min-width:0">
+      <div style="height:52px; flex:none; display:flex; align-items:center; gap:12px; padding:0 16px; border-bottom:1px solid #1c1918">
+        <div style="flex:1; max-width:520px; display:flex; align-items:center; gap:10px; height:32px; padding:0 12px; background:#161413; border:1px solid #232020; border-radius:999px; color:#7d756f; font-size:12.5px; cursor:text" style-hover="border-color:#332d2a">
+          <span style="color:#5f5852">⌕</span> Search projects, files and commands
+          <span style="margin-left:auto; font-family:'JetBrains Mono',monospace; font-size:10.5px; color:#6f6862; background:#211d1b; padding:2px 6px; border-radius:5px">⌘K</span>
+        </div>
+        <div style="flex:1"></div>
+        <div onClick="{{ openUpdate }}" style="display:flex; align-items:center; gap:6px; height:28px; padding:0 12px; border-radius:999px; background:rgba(242,98,10,0.12); border:1px solid rgba(242,98,10,0.3); color:var(--ac,#f2620a); font-size:12px; font-weight:600; cursor:pointer" style-hover="background:rgba(242,98,10,0.2)">↓ Update 0.1.15</div>
+        <div style="display:flex; align-items:center; gap:6px; font-size:12px; color:#9a928c"><span style="width:6px; height:6px; border-radius:999px; background:#e3a008"></span> 0 running</div>
+        <div style="width:28px; height:28px; border-radius:999px; display:flex; align-items:center; justify-content:center; color:#8a827c; cursor:pointer" style-hover="background:#1a1716">⌁</div>
+        <div style="width:28px; height:28px; border-radius:999px; background:#211d1b; display:flex; align-items:center; justify-content:center; font-size:11px; color:#c9c1bb; cursor:pointer">JD</div>
+      </div>
+
+      <div style="flex:1; overflow:auto; padding:26px 30px 30px">
+
+        <sc-if value="{{ isOverview }}" hint-placeholder-val="{{ true }}">
+          <div style="display:flex; flex-direction:column; gap:18px; max-width:940px">
+            <div style="display:flex; align-items:flex-end; justify-content:space-between">
+              <div>
+                <div style="font-size:28px; font-weight:600; letter-spacing:-0.025em">Overview</div>
+                <div style="color:#8a827c; margin-top:2px">How this machine and its projects are doing.</div>
+              </div>
+              <div onClick="{{ openWizard }}" style="height:32px; padding:0 16px; border-radius:999px; background:var(--ac,#f2620a); color:#180d04; font-weight:600; font-size:12.5px; display:flex; align-items:center; cursor:pointer">+ New project</div>
+            </div>
+
+            <sc-if value="{{ showDockerWarning }}" hint-placeholder-val="{{ true }}">
+              <div style="display:flex; align-items:center; gap:14px; padding:14px 16px; border-radius:12px; background:rgba(227,160,8,0.07); border:1px solid rgba(227,160,8,0.2)">
+                <div style="width:28px; height:28px; flex:none; border-radius:8px; background:rgba(227,160,8,0.16); display:flex; align-items:center; justify-content:center; color:#e3a008">!</div>
+                <div style="flex:1">
+                  <div style="font-weight:600; font-size:13.5px; color:#f0d9a0">Docker is not running</div>
+                  <div style="color:#a3937a; font-size:12.5px; margin-top:1px">Projects cannot start until Docker is available. Creating projects, editing files and settings still work.</div>
+                </div>
+                <div style="display:flex; gap:8px; align-items:center">
+                  <div style="height:28px; padding:0 12px; border-radius:999px; border:1px solid rgba(227,160,8,0.3); color:#e3a008; font-size:12px; display:flex; align-items:center; cursor:pointer">Retry</div>
+                  <div style="font-size:12px; color:#8a827c; cursor:pointer">Dismiss</div>
+                </div>
+              </div>
+            </sc-if>
+
+            <div style="display:grid; grid-template-columns:repeat(4,1fr); gap:10px">
+              <div style="padding:14px 16px; border-radius:12px; background:#141211; border:1px solid #221e1c">
+                <div style="font-size:11px; letter-spacing:0.08em; color:#7d756f; font-weight:600">PROJECTS</div>
+                <div style="font-size:30px; font-weight:600; letter-spacing:-0.03em; margin-top:6px; font-family:'JetBrains Mono',monospace">1</div>
+              </div>
+              <div style="padding:14px 16px; border-radius:12px; background:#141211; border:1px solid #221e1c">
+                <div style="font-size:11px; letter-spacing:0.08em; color:#7d756f; font-weight:600">RUNNING</div>
+                <div style="font-size:30px; font-weight:600; letter-spacing:-0.03em; margin-top:6px; font-family:'JetBrains Mono',monospace; color:#4ec26a">0</div>
+              </div>
+              <div style="padding:14px 16px; border-radius:12px; background:#141211; border:1px solid #221e1c">
+                <div style="font-size:11px; letter-spacing:0.08em; color:#7d756f; font-weight:600">STOPPED</div>
+                <div style="font-size:30px; font-weight:600; letter-spacing:-0.03em; margin-top:6px; font-family:'JetBrains Mono',monospace">1</div>
+              </div>
+              <div style="padding:14px 16px; border-radius:12px; background:#141211; border:1px solid #221e1c">
+                <div style="font-size:11px; letter-spacing:0.08em; color:#7d756f; font-weight:600">FAILED</div>
+                <div style="font-size:30px; font-weight:600; letter-spacing:-0.03em; margin-top:6px; font-family:'JetBrains Mono',monospace">0</div>
+              </div>
+            </div>
+
+            <div style="display:grid; grid-template-columns:1.35fr 1fr; gap:14px; align-items:start">
+              <div style="border-radius:12px; background:#141211; border:1px solid #221e1c">
+                <div style="padding:13px 16px; border-bottom:1px solid #1d1a18">
+                  <div style="font-weight:600">This machine</div>
+                  <div style="font-size:12px; color:#7d756f; margin-top:1px; font-family:'JetBrains Mono',monospace">4 cores · sampled every 4s</div>
+                </div>
+                <div style="padding:16px; display:grid; grid-template-columns:repeat(3,1fr); gap:16px">
+                  <div>
+                    <div style="display:flex; justify-content:space-between; font-size:12px; color:#9a928c"><span>CPU</span><span style="font-family:'JetBrains Mono',monospace; color:#ece6e1">0%</span></div>
+                    <div style="height:5px; border-radius:999px; background:#221e1c; margin-top:7px"><div style="width:2%; height:5px; border-radius:999px; background:#4ec26a"></div></div>
+                    <div style="font-size:11px; color:#6f6862; margin-top:6px; font-family:'JetBrains Mono',monospace">idle</div>
+                  </div>
+                  <div>
+                    <div style="display:flex; justify-content:space-between; font-size:12px; color:#9a928c"><span>Memory</span><span style="font-family:'JetBrains Mono',monospace; color:#ece6e1">87%</span></div>
+                    <div style="height:5px; border-radius:999px; background:#221e1c; margin-top:7px"><div style="width:87%; height:5px; border-radius:999px; background:#e3a008"></div></div>
+                    <div style="font-size:11px; color:#6f6862; margin-top:6px; font-family:'JetBrains Mono',monospace">6.9 / 7.9 GB</div>
+                  </div>
+                  <div>
+                    <div style="display:flex; justify-content:space-between; font-size:12px; color:#9a928c"><span>Disk</span><span style="font-family:'JetBrains Mono',monospace; color:#ece6e1">86%</span></div>
+                    <div style="height:5px; border-radius:999px; background:#221e1c; margin-top:7px"><div style="width:86%; height:5px; border-radius:999px; background:#e3a008"></div></div>
+                    <div style="font-size:11px; color:#6f6862; margin-top:6px; font-family:'JetBrains Mono',monospace">344 / 400 GB</div>
+                  </div>
+                </div>
+                <div style="border-top:1px solid #1d1a18">
+                  <div style="display:flex; justify-content:space-between; padding:9px 16px; border-bottom:1px solid #191615; font-size:13px"><span style="color:#9a928c">Application uptime</span><span style="font-family:'JetBrains Mono',monospace">42s</span></div>
+                  <div style="display:flex; justify-content:space-between; padding:9px 16px; border-bottom:1px solid #191615; font-size:13px"><span style="color:#9a928c">Docker</span><span style="color:#e3a008">Unavailable</span></div>
+                  <div style="display:flex; justify-content:space-between; padding:9px 16px; font-size:13px"><span style="color:#9a928c">Projects volume</span><span style="font-family:'JetBrains Mono',monospace">C:\</span></div>
+                </div>
+              </div>
+
+              <div style="display:flex; flex-direction:column; gap:14px">
+                <div style="border-radius:12px; background:#141211; border:1px solid #221e1c; padding:14px 16px">
+                  <div style="font-weight:600">Needs attention</div>
+                  <div style="display:flex; align-items:center; gap:8px; margin-top:10px; color:#4ec26a; font-size:13px"><span style="width:16px; height:16px; border-radius:999px; background:rgba(78,194,106,0.14); display:flex; align-items:center; justify-content:center; font-size:10px">✓</span> Everything is behaving.</div>
+                </div>
+                <div style="border-radius:12px; background:#141211; border:1px solid #221e1c">
+                  <div style="padding:13px 16px; border-bottom:1px solid #1d1a18; display:flex; justify-content:space-between; align-items:center">
+                    <span style="font-weight:600">Recently opened</span>
+                    <span onClick="{{ goProjects }}" style="font-size:12px; color:var(--ac,#f2620a); cursor:pointer">All projects</span>
+                  </div>
+                  <div onClick="{{ goProject }}" style="display:flex; align-items:center; gap:10px; padding:11px 16px; cursor:pointer" style-hover="background:#191615">
+                    <span style="width:26px; height:26px; border-radius:8px; background:linear-gradient(160deg,#f0577a,#c9345c); display:flex; align-items:center; justify-content:center; font-size:12px">🤖</span>
+                    <div style="flex:1">
+                      <div style="font-size:13px">romi bot</div>
+                      <div style="font-size:11px; color:#6f6862; font-family:'JetBrains Mono',monospace">brave-thicket-72a6</div>
+                    </div>
+                    <span style="width:6px; height:6px; border-radius:999px; background:#6f6862"></span>
+                  </div>
+                </div>
+                <div style="border-radius:12px; background:#141211; border:1px solid #221e1c">
+                  <div style="padding:13px 16px; border-bottom:1px solid #1d1a18; display:flex; justify-content:space-between; align-items:center">
+                    <span style="font-weight:600">Recent activity</span>
+                    <span onClick="{{ goActivity }}" style="font-size:12px; color:var(--ac,#f2620a); cursor:pointer">View all</span>
+                  </div>
+                  <div style="padding:16px; color:#6f6862; font-size:12.5px">Nothing has happened yet.</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ isProjects }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex; flex-direction:column; gap:18px; max-width:940px">
+            <div style="display:flex; align-items:flex-end; justify-content:space-between">
+              <div>
+                <div style="font-size:28px; font-weight:600; letter-spacing:-0.025em">Projects</div>
+                <div style="color:#8a827c; margin-top:2px">1 project on this machine.</div>
+              </div>
+              <div onClick="{{ openWizard }}" style="height:32px; padding:0 16px; border-radius:999px; background:var(--ac,#f2620a); color:#180d04; font-weight:600; font-size:12.5px; display:flex; align-items:center; cursor:pointer">+ New project</div>
+            </div>
+            <div style="display:flex; gap:8px; align-items:center">
+              <div style="flex:1; max-width:300px; display:flex; align-items:center; gap:8px; height:30px; padding:0 12px; background:#161413; border:1px solid #232020; border-radius:999px; color:#6f6862; font-size:12.5px"><span>⌕</span> Filter projects</div>
+              <div style="height:30px; padding:0 12px; border-radius:999px; border:1px solid #232020; color:#9a928c; font-size:12.5px; display:flex; align-items:center; gap:6px; cursor:pointer">Any status ⌄</div>
+              <div style="height:30px; padding:0 12px; border-radius:999px; border:1px solid #232020; color:#9a928c; font-size:12.5px; display:flex; align-items:center; gap:6px; cursor:pointer">Any runtime ⌄</div>
+              <div style="flex:1"></div>
+              <div style="display:flex; padding:2px; border-radius:999px; background:#161413; border:1px solid #232020">
+                <div style="padding:3px 10px; border-radius:999px; background:#2a2523; font-size:11.5px">Grid</div>
+                <div style="padding:3px 10px; border-radius:999px; color:#7d756f; font-size:11.5px; cursor:pointer">List</div>
+              </div>
+            </div>
+            <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:12px">
+              <div onClick="{{ goProject }}" style="border-radius:12px; background:#141211; border:1px solid #221e1c; padding:16px; display:flex; flex-direction:column; gap:14px; cursor:pointer" style-hover="border-color:#3a332f; background:#171514">
+                <div style="display:flex; align-items:flex-start; gap:11px">
+                  <div style="width:34px; height:34px; border-radius:10px; background:linear-gradient(160deg,#f0577a,#c9345c); display:flex; align-items:center; justify-content:center; font-size:15px">🤖</div>
+                  <div style="flex:1; min-width:0">
+                    <div style="font-size:14.5px; font-weight:600; letter-spacing:-0.01em">romi bot</div>
+                    <div style="font-size:11px; color:#6f6862; font-family:'JetBrains Mono',monospace; margin-top:1px">brave-thicket-72a6</div>
+                  </div>
+                  <div style="display:flex; align-items:center; gap:5px; font-size:11px; color:#9a928c; background:#211d1b; padding:3px 8px; border-radius:999px"><span style="width:5px; height:5px; border-radius:999px; background:#8a827c"></span>Stopped</div>
+                </div>
+                <div style="display:flex; gap:6px; font-size:11px; color:#9a928c">
+                  <span style="padding:2px 8px; border-radius:999px; border:1px solid #262220">Service</span>
+                  <span style="padding:2px 8px; border-radius:999px; border:1px solid #262220; font-family:'JetBrains Mono',monospace">:20000</span>
+                </div>
+                <div style="display:flex; align-items:center; gap:8px; padding-top:12px; border-top:1px solid #1d1a18">
+                  <div style="height:26px; padding:0 12px; border-radius:999px; background:var(--ac,#f2620a); color:#180d04; font-weight:600; font-size:11.5px; display:flex; align-items:center; cursor:pointer">▶ Start</div>
+                  <div onClick="{{ goEditor }}" style="height:26px; padding:0 12px; border-radius:999px; border:1px solid #2a2523; color:#c9c1bb; font-size:11.5px; display:flex; align-items:center; cursor:pointer">Open</div>
+                  <div style="margin-left:auto; color:#6f6862; cursor:pointer">···</div>
+                </div>
+              </div>
+              <div onClick="{{ openWizard }}" style="border-radius:12px; border:1px dashed #2a2523; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px; min-height:170px; color:#6f6862; cursor:pointer" style-hover="border-color:var(--ac,#f2620a); color:#c9c1bb">
+                <div style="font-size:20px">+</div>
+                <div style="font-size:12.5px">New project</div>
+              </div>
+            </div>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ isProject }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex; flex-direction:column; gap:18px; max-width:940px">
+            <div onClick="{{ goProjects }}" style="font-size:12.5px; color:#7d756f; cursor:pointer; width:fit-content">‹ Projects</div>
+            <div style="display:flex; align-items:center; gap:14px">
+              <div style="width:44px; height:44px; border-radius:12px; background:linear-gradient(160deg,#f0577a,#c9345c); display:flex; align-items:center; justify-content:center; font-size:19px">🤖</div>
+              <div style="flex:1">
+                <div style="display:flex; align-items:center; gap:10px">
+                  <span style="font-size:26px; font-weight:600; letter-spacing:-0.025em">romi bot</span>
+                  <span style="display:flex; align-items:center; gap:5px; font-size:11px; color:#9a928c; background:#211d1b; padding:3px 9px; border-radius:999px"><span style="width:5px; height:5px; border-radius:999px; background:#8a827c"></span>Stopped</span>
+                  <span style="font-size:11px; color:#7d756f; border:1px solid #262220; padding:3px 9px; border-radius:999px">No health check</span>
+                </div>
+                <div style="font-family:'JetBrains Mono',monospace; font-size:12px; color:#6f6862; margin-top:2px">brave-thicket-72a6</div>
+              </div>
+              <div style="display:flex; gap:8px">
+                <div style="height:32px; padding:0 16px; border-radius:999px; background:var(--ac,#f2620a); color:#180d04; font-weight:600; font-size:12.5px; display:flex; align-items:center; gap:6px; cursor:pointer">▶ Start</div>
+                <div onClick="{{ goEditor }}" style="height:32px; padding:0 14px; border-radius:999px; border:1px solid #2a2523; color:#c9c1bb; font-size:12.5px; display:flex; align-items:center; gap:6px; cursor:pointer" style-hover="border-color:#3a332f">Open editor</div>
+              </div>
+            </div>
+
+            <div style="display:flex; gap:4px; border-bottom:1px solid #1d1a18; padding-bottom:0">
+              <sc-for list="{{ projectTabs }}" as="t" hint-placeholder-count="7">
+                <div onClick="{{ t.onClick }}" style="{{ t.style }}">{{ t.label }}</div>
+              </sc-for>
+            </div>
+
+            <sc-if value="{{ projOverview }}" hint-placeholder-val="{{ true }}">
+              <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px; align-items:start">
+                <div style="border-radius:12px; background:#141211; border:1px solid #221e1c">
+                  <div style="padding:13px 16px; border-bottom:1px solid #1d1a18; font-weight:600">State</div>
+                  <div style="display:flex; justify-content:space-between; padding:9px 16px; border-bottom:1px solid #191615"><span style="color:#9a928c">Uptime</span><span style="font-family:'JetBrains Mono',monospace; color:#6f6862">—</span></div>
+                  <div style="display:flex; justify-content:space-between; padding:9px 16px; border-bottom:1px solid #191615"><span style="color:#9a928c">Started</span><span style="font-family:'JetBrains Mono',monospace; color:#6f6862">—</span></div>
+                  <div style="display:flex; justify-content:space-between; padding:9px 16px; border-bottom:1px solid #191615"><span style="color:#9a928c">Restarts</span><span style="font-family:'JetBrains Mono',monospace">0</span></div>
+                  <div style="display:flex; justify-content:space-between; padding:9px 16px; border-bottom:1px solid #191615"><span style="color:#9a928c">Last exit code</span><span style="font-family:'JetBrains Mono',monospace; color:#6f6862">—</span></div>
+                  <div style="display:flex; justify-content:space-between; padding:9px 16px; border-bottom:1px solid #191615"><span style="color:#9a928c">Wanted state</span><span>stopped</span></div>
+                  <div style="display:flex; justify-content:space-between; padding:9px 16px"><span style="color:#9a928c">Autostart</span><span>off</span></div>
+                </div>
+                <div style="border-radius:12px; background:#141211; border:1px solid #221e1c">
+                  <div style="padding:13px 16px; border-bottom:1px solid #1d1a18; font-weight:600">Runtime</div>
+                  <div style="display:flex; justify-content:space-between; padding:9px 16px; border-bottom:1px solid #191615"><span style="color:#9a928c">Type</span><span>Service</span></div>
+                  <div style="display:flex; justify-content:space-between; padding:9px 16px; border-bottom:1px solid #191615"><span style="color:#9a928c">Runtime</span><span>Polyglot</span></div>
+                  <div style="display:flex; justify-content:space-between; padding:9px 16px; border-bottom:1px solid #191615"><span style="color:#9a928c">Package manager</span><span style="color:#6f6862">NONE</span></div>
+                  <div style="display:flex; justify-content:space-between; padding:9px 16px; border-bottom:1px solid #191615"><span style="color:#9a928c">Start</span><span style="font-family:'JetBrains Mono',monospace">/app/start.sh</span></div>
+                  <div style="display:flex; justify-content:space-between; padding:9px 16px; border-bottom:1px solid #191615"><span style="color:#9a928c">Working directory</span><span style="font-family:'JetBrains Mono',monospace">/app</span></div>
+                  <div style="display:flex; justify-content:space-between; padding:9px 16px"><span style="color:#9a928c">Run mode</span><span style="font-family:'JetBrains Mono',monospace">docker</span></div>
+                </div>
+                <div style="border-radius:12px; background:#141211; border:1px solid #221e1c">
+                  <div style="padding:13px 16px; border-bottom:1px solid #1d1a18; display:flex; justify-content:space-between; align-items:center">
+                    <span style="font-weight:600">Source and storage</span>
+                    <span onClick="{{ goEditor }}" style="font-size:12px; color:var(--ac,#f2620a); cursor:pointer">Open files</span>
+                  </div>
+                  <div style="display:flex; justify-content:space-between; padding:9px 16px; border-bottom:1px solid #191615"><span style="color:#9a928c">Source</span><span style="color:#6f6862">empty</span></div>
+                  <div style="display:flex; justify-content:space-between; padding:9px 16px; border-bottom:1px solid #191615"><span style="color:#9a928c">Folder</span><span style="font-family:'JetBrains Mono',monospace">brave-thicket-72a6</span></div>
+                  <div style="display:flex; justify-content:space-between; padding:9px 16px"><span style="color:#9a928c">Created</span><span>26d ago</span></div>
+                </div>
+                <div style="border-radius:12px; background:#141211; border:1px solid #221e1c">
+                  <div style="padding:13px 16px; border-bottom:1px solid #1d1a18; font-weight:600">Recent activity</div>
+                  <div style="padding:16px; color:#6f6862; font-size:12.5px">Nothing recorded for this project yet.</div>
+                </div>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ projNetworking }}" hint-placeholder-val="{{ false }}">
+              <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px; align-items:start">
+                <div style="border-radius:12px; background:#141211; border:1px solid #221e1c">
+                  <div style="padding:13px 16px; border-bottom:1px solid #1d1a18; font-weight:600">Ports</div>
+                  <div style="display:flex; align-items:center; gap:10px; padding:11px 16px; font-family:'JetBrains Mono',monospace; font-size:12.5px">
+                    <span>20000</span><span style="color:#6f6862">→</span><span>8080</span>
+                    <span style="font-size:10.5px; color:#9a928c; border:1px solid #262220; padding:2px 7px; border-radius:999px; font-family:'Instrument Sans',sans-serif">TCP</span>
+                    <span style="margin-left:auto; color:var(--ac,#f2620a); cursor:pointer">localhost:20000</span>
+                  </div>
+                  <div style="padding:12px 16px; border-top:1px solid #191615; font-size:12px; color:#6f6862">A project is given a port from the host pool the first time it starts.</div>
+                </div>
+                <div style="border-radius:12px; background:#141211; border:1px solid #221e1c">
+                  <div style="padding:13px 16px; border-bottom:1px solid #1d1a18; font-weight:600">Network</div>
+                  <div style="display:flex; justify-content:space-between; padding:9px 16px; border-bottom:1px solid #191615"><span style="color:#9a928c">Mode</span><span>internet</span></div>
+                  <div style="display:flex; justify-content:space-between; padding:9px 16px; border-bottom:1px solid #191615"><span style="color:#9a928c">Container</span><span style="font-family:'JetBrains Mono',monospace; font-size:12px">projecthost-brave-thicket-72a6</span></div>
+                  <div style="display:flex; justify-content:space-between; padding:9px 16px; border-bottom:1px solid #191615"><span style="color:#9a928c">Image</span><span style="color:#6f6862">—</span></div>
+                  <div style="display:flex; justify-content:space-between; padding:9px 16px"><span style="color:#9a928c">Health check</span><span style="color:#6f6862">none</span></div>
+                </div>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ projEmpty }}" hint-placeholder-val="{{ false }}">
+              <div style="border-radius:12px; background:#141211; border:1px solid #221e1c; padding:60px 24px; display:flex; flex-direction:column; align-items:center; gap:10px; text-align:center">
+                <div style="width:44px; height:44px; border-radius:12px; background:#1d1a18; display:flex; align-items:center; justify-content:center; font-size:18px; color:#7d756f">▦</div>
+                <div style="font-size:16px; font-weight:600; margin-top:4px">{{ emptyTitle }}</div>
+                <div style="color:#8a827c; font-size:12.5px; max-width:380px">{{ emptyBody }}</div>
+              </div>
+            </sc-if>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ isActivity }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex; flex-direction:column; gap:18px; max-width:940px">
+            <div>
+              <div style="font-size:28px; font-weight:600; letter-spacing:-0.025em">Activity</div>
+              <div style="color:#8a827c; margin-top:2px">What Panel Platform has done, newest first.</div>
+            </div>
+            <div style="display:flex; gap:8px; align-items:center">
+              <div style="flex:1; max-width:300px; display:flex; align-items:center; gap:8px; height:30px; padding:0 12px; background:#161413; border:1px solid #232020; border-radius:999px; color:#6f6862; font-size:12.5px"><span>⌕</span> Search activity</div>
+              <div style="height:30px; padding:0 12px; border-radius:999px; border:1px solid #232020; color:#9a928c; font-size:12.5px; display:flex; align-items:center; cursor:pointer">Any result ⌄</div>
+              <div style="height:30px; padding:0 12px; border-radius:999px; border:1px solid #232020; color:#9a928c; font-size:12.5px; display:flex; align-items:center; cursor:pointer">All projects ⌄</div>
+            </div>
+            <div style="border-radius:12px; background:#141211; border:1px solid #221e1c; padding:70px 24px; display:flex; flex-direction:column; align-items:center; gap:10px; text-align:center">
+              <div style="width:44px; height:44px; border-radius:12px; background:#1d1a18; display:flex; align-items:center; justify-content:center; font-size:18px; color:#7d756f">⌁</div>
+              <div style="font-size:16px; font-weight:600; margin-top:4px">No activity yet</div>
+              <div style="color:#8a827c; font-size:12.5px; max-width:360px">Starting, stopping and editing projects will show up here as it happens.</div>
+            </div>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ isDiscord }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex; flex-direction:column; gap:18px; max-width:940px">
+            <div>
+              <div style="font-size:28px; font-weight:600; letter-spacing:-0.025em">Discord</div>
+              <div style="color:#8a827c; margin-top:2px">Watch and control projects from a Discord server.</div>
+            </div>
+            <div style="display:flex; align-items:center; gap:14px; padding:14px 16px; border-radius:12px; background:#141211; border:1px solid #221e1c">
+              <div style="width:32px; height:32px; flex:none; border-radius:9px; background:#1d1a18; display:flex; align-items:center; justify-content:center; color:#8a827c">◇</div>
+              <div style="flex:1">
+                <div style="display:flex; align-items:center; gap:8px">
+                  <span style="font-weight:600">Not connected</span>
+                  <span style="font-size:11px; color:#9a928c; background:#211d1b; padding:2px 8px; border-radius:999px; font-family:'JetBrains Mono',monospace">3 of 4 ready</span>
+                </div>
+                <div style="color:#8a827c; font-size:12.5px; margin-top:1px">The connection to Discord is not built yet, so no server can be linked from here.</div>
+              </div>
+              <div style="height:30px; padding:0 14px; border-radius:999px; border:1px solid #262220; color:#6f6862; font-size:12.5px; display:flex; align-items:center">Connect a server</div>
+            </div>
+            <div style="border-radius:12px; background:#141211; border:1px solid #221e1c; overflow:hidden">
+              <div style="padding:13px 16px; border-bottom:1px solid #1d1a18">
+                <div style="font-weight:600">What a linked server looks like</div>
+                <div style="font-size:12px; color:#7d756f; margin-top:1px">A preview, not a connection — nothing here is live.</div>
+              </div>
+              <div style="display:flex; height:210px">
+                <div style="width:56px; flex:none; background:#0f0e0d; border-right:1px solid #1d1a18; display:flex; flex-direction:column; align-items:center; padding:10px 0; gap:8px">
+                  <div style="width:32px; height:32px; border-radius:10px; background:var(--ac,#f2620a); color:#180d04; font-size:11px; font-weight:700; display:flex; align-items:center; justify-content:center">PP</div>
+                  <div style="width:32px; height:32px; border-radius:999px; background:#2f7d52; font-size:11px; display:flex; align-items:center; justify-content:center">OP</div>
+                  <div style="width:32px; height:32px; border-radius:999px; background:#a3355c; font-size:11px; display:flex; align-items:center; justify-content:center">DV</div>
+                </div>
+                <div style="width:170px; flex:none; background:#121110; border-right:1px solid #1d1a18; padding:10px 8px">
+                  <div style="font-size:10.5px; letter-spacing:0.1em; color:#5f5852; font-weight:600; padding:0 6px 6px">PROJECTS</div>
+                  <div style="display:flex; flex-direction:column; gap:1px; font-size:12.5px; font-family:'JetBrains Mono',monospace">
+                    <div style="padding:4px 8px; border-radius:6px; background:#211d1b; color:#f5f0ec"># panel-control</div>
+                    <div style="padding:4px 8px; border-radius:6px; color:#7d756f"># api-logs</div>
+                    <div style="padding:4px 8px; border-radius:6px; color:#7d756f"># bot-logs</div>
+                    <div style="padding:4px 8px; border-radius:6px; color:#7d756f"># site-logs</div>
+                  </div>
+                </div>
+                <div style="flex:1; padding:14px; display:flex; gap:12px">
+                  <div style="width:34px; height:34px; flex:none; border-radius:999px; background:var(--ac,#f2620a); color:#180d04; font-weight:700; font-size:12px; display:flex; align-items:center; justify-content:center">PP</div>
+                  <div style="flex:1">
+                    <div style="display:flex; align-items:center; gap:7px">
+                      <span style="font-weight:600; font-size:13px">Panel Platform</span>
+                      <span style="font-size:9.5px; letter-spacing:0.06em; background:var(--ac,#f2620a); color:#180d04; padding:1px 5px; border-radius:4px; font-weight:700">APP</span>
+                    </div>
+                    <div style="margin-top:8px; border-left:3px solid #4ec26a; background:#161413; border-radius:0 8px 8px 0; padding:11px 14px">
+                      <div style="font-family:'JetBrains Mono',monospace; font-size:12.5px; color:#c9c1bb">api · running</div>
+                      <div style="display:flex; justify-content:space-between; margin-top:8px; font-size:12px; color:#8a827c"><span>Uptime</span><span style="font-family:'JetBrains Mono',monospace; color:#ece6e1">4h 12m</span></div>
+                      <div style="display:flex; justify-content:space-between; margin-top:3px; font-size:12px; color:#8a827c"><span>Restarts</span><span style="font-family:'JetBrains Mono',monospace; color:#ece6e1">0</span></div>
+                      <div style="display:flex; gap:6px; margin-top:11px">
+                        <div style="height:24px; padding:0 11px; border-radius:6px; background:#211d1b; font-size:11.5px; display:flex; align-items:center">Restart</div>
+                        <div style="height:24px; padding:0 11px; border-radius:6px; background:#211d1b; font-size:11.5px; display:flex; align-items:center">Stop</div>
+                        <div style="height:24px; padding:0 11px; border-radius:6px; background:var(--ac,#f2620a); color:#180d04; font-weight:600; font-size:11.5px; display:flex; align-items:center">Logs</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px; align-items:start">
+              <div style="border-radius:12px; background:#141211; border:1px solid #221e1c">
+                <div style="padding:13px 16px; border-bottom:1px solid #1d1a18">
+                  <div style="font-weight:600">Setup</div>
+                  <div style="font-size:12px; color:#7d756f; margin-top:1px">What is built, and what is missing</div>
+                </div>
+                <div style="display:flex; align-items:flex-start; gap:10px; padding:11px 16px; border-bottom:1px solid #191615">
+                  <span style="width:16px; height:16px; flex:none; margin-top:1px; border-radius:999px; background:rgba(78,194,106,0.14); color:#4ec26a; display:flex; align-items:center; justify-content:center; font-size:10px">✓</span>
+                  <div><div style="font-size:13px">Permission model</div><div style="font-size:12px; color:#7d756f">Who may start, stop and inspect a project, by Discord role.</div></div>
+                </div>
+                <div style="display:flex; align-items:flex-start; gap:10px; padding:11px 16px; border-bottom:1px solid #191615">
+                  <span style="width:16px; height:16px; flex:none; margin-top:1px; border-radius:999px; background:rgba(78,194,106,0.14); color:#4ec26a; display:flex; align-items:center; justify-content:center; font-size:10px">✓</span>
+                  <div><div style="font-size:13px">Control panel and channels</div><div style="font-size:12px; color:#7d756f">A log channel and a control channel per project, named consistently.</div></div>
+                </div>
+                <div style="display:flex; align-items:flex-start; gap:10px; padding:11px 16px">
+                  <span style="width:16px; height:16px; flex:none; margin-top:1px; border-radius:999px; background:rgba(78,194,106,0.14); color:#4ec26a; display:flex; align-items:center; justify-content:center; font-size:10px">✓</span>
+                  <div><div style="font-size:13px">Message safety</div><div style="font-size:12px; color:#7d756f">Rate limits and edit-in-place, so a channel is never flooded.</div></div>
+                </div>
+              </div>
+              <div style="border-radius:12px; background:#141211; border:1px solid #221e1c">
+                <div style="padding:13px 16px; border-bottom:1px solid #1d1a18; font-weight:600">Permissions it will ask for</div>
+                <div style="display:flex; align-items:flex-start; gap:10px; padding:11px 16px; border-bottom:1px solid #191615"><span style="width:14px; height:14px; flex:none; margin-top:2px; border-radius:999px; border:1px solid #332d2a"></span><div style="font-size:12.5px; color:#9a928c">Manage Channels — to create the log and control channels</div></div>
+                <div style="display:flex; align-items:flex-start; gap:10px; padding:11px 16px; border-bottom:1px solid #191615"><span style="width:14px; height:14px; flex:none; margin-top:2px; border-radius:999px; border:1px solid #332d2a"></span><div style="font-size:12.5px; color:#9a928c">Send Messages — to post status and control panels</div></div>
+                <div style="display:flex; align-items:flex-start; gap:10px; padding:11px 16px; border-bottom:1px solid #191615"><span style="width:14px; height:14px; flex:none; margin-top:2px; border-radius:999px; border:1px solid #332d2a"></span><div style="font-size:12.5px; color:#9a928c">Embed Links — for the control panel layout</div></div>
+                <div style="display:flex; align-items:flex-start; gap:10px; padding:11px 16px"><span style="width:14px; height:14px; flex:none; margin-top:2px; border-radius:999px; border:1px solid #332d2a"></span><div style="font-size:12.5px; color:#9a928c">Read Message History — to update a panel it posted earlier</div></div>
+              </div>
+            </div>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ isSettings }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex; flex-direction:column; gap:18px; max-width:940px">
+            <div>
+              <div style="font-size:28px; font-weight:600; letter-spacing:-0.025em">Settings</div>
+              <div style="color:#8a827c; margin-top:2px">What this installation is running, and where.</div>
+            </div>
+            <div style="display:flex; flex-wrap:wrap; gap:4px; border-bottom:1px solid #1d1a18">
+              <sc-for list="{{ settingsTabs }}" as="t" hint-placeholder-count="11">
+                <div onClick="{{ t.onClick }}" style="{{ t.style }}">{{ t.label }}</div>
+              </sc-for>
+            </div>
+
+            <sc-if value="{{ setAppearance }}" hint-placeholder-val="{{ true }}">
+              <div style="display:flex; flex-direction:column; gap:14px">
+                <div style="border-radius:12px; background:#141211; border:1px solid #221e1c">
+                  <div style="padding:13px 16px; border-bottom:1px solid #1d1a18">
+                    <div style="font-weight:600">Theme</div>
+                    <div style="font-size:12px; color:#7d756f; margin-top:1px">Applies everywhere except the Discord panel</div>
+                  </div>
+                  <div style="padding:16px; display:grid; grid-template-columns:repeat(3,1fr); gap:10px">
+                    <sc-for list="{{ themes }}" as="th" hint-placeholder-count="5">
+                      <div onClick="{{ th.onClick }}" style="{{ th.style }}">
+                        <div style="width:22px; height:34px; flex:none; border-radius:6px; background:{{ th.swatch }}; border:1px solid rgba(255,255,255,0.08)"></div>
+                        <div style="flex:1">
+                          <div style="font-size:13px; font-weight:600; display:flex; align-items:center; gap:6px">{{ th.name }}<span style="{{ th.check }}">✓</span></div>
+                          <div style="font-size:11.5px; color:#8a827c; margin-top:2px">{{ th.desc }}</div>
+                        </div>
+                      </div>
+                    </sc-for>
+                  </div>
+                </div>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px; align-items:start">
+                  <div style="border-radius:12px; background:#141211; border:1px solid #221e1c">
+                    <div style="padding:13px 16px; border-bottom:1px solid #1d1a18">
+                      <div style="font-weight:600">Accent</div>
+                      <div style="font-size:12px; color:#7d756f; margin-top:1px">The primary action, links and the active item</div>
+                    </div>
+                    <div style="padding:16px; display:flex; gap:10px">
+                      <sc-for list="{{ accents }}" as="a" hint-placeholder-count="6">
+                        <div onClick="{{ a.onClick }}" style="{{ a.style }}">{{ a.check }}</div>
+                      </sc-for>
+                    </div>
+                  </div>
+                  <div style="border-radius:12px; background:#141211; border:1px solid #221e1c">
+                    <div style="padding:13px 16px; border-bottom:1px solid #1d1a18">
+                      <div style="font-weight:600">Density</div>
+                      <div style="font-size:12px; color:#7d756f; margin-top:1px">Row heights and page gutters, not text size</div>
+                    </div>
+                    <div style="padding:16px; display:flex; gap:8px">
+                      <div style="flex:1; height:34px; border-radius:999px; background:rgba(242,98,10,0.12); border:1px solid rgba(242,98,10,0.35); color:var(--ac,#f2620a); font-weight:600; font-size:12.5px; display:flex; align-items:center; justify-content:center; cursor:pointer">Comfortable</div>
+                      <div style="flex:1; height:34px; border-radius:999px; border:1px solid #262220; color:#9a928c; font-size:12.5px; display:flex; align-items:center; justify-content:center; cursor:pointer" style-hover="border-color:#3a332f">Compact</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ setGeneral }}" hint-placeholder-val="{{ false }}">
+              <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px; align-items:start">
+                <div style="border-radius:12px; background:#141211; border:1px solid #221e1c">
+                  <div style="padding:13px 16px; border-bottom:1px solid #1d1a18">
+                    <div style="font-weight:600">This window</div>
+                    <div style="font-size:12px; color:#7d756f; margin-top:1px">Preferences stored on this machine</div>
+                  </div>
+                  <div style="display:flex; align-items:center; gap:12px; padding:12px 16px; border-bottom:1px solid #191615">
+                    <div style="flex:1"><div style="font-size:13px">Collapse the sidebar</div><div style="font-size:12px; color:#7d756f">Show icons only. Ctrl+B toggles it at any time.</div></div>
+                    <div onClick="{{ toggleCollapse }}" style="{{ collapseTrack }}"><div style="{{ collapseKnob }}"></div></div>
+                  </div>
+                  <div style="display:flex; align-items:center; gap:12px; padding:12px 16px; border-bottom:1px solid #191615">
+                    <div style="flex:1"><div style="font-size:13px">Confirm destructive actions</div><div style="font-size:12px; color:#7d756f">Ask before force-killing a project or deleting a file.</div></div>
+                    <div onClick="{{ toggleConfirm }}" style="{{ confirmTrack }}"><div style="{{ confirmKnob }}"></div></div>
+                  </div>
+                  <div style="padding:14px 16px">
+                    <div style="height:30px; width:fit-content; padding:0 14px; border-radius:999px; border:1px solid #2a2523; color:#c9c1bb; font-size:12.5px; display:flex; align-items:center; cursor:pointer" style-hover="border-color:#3a332f">Reset layout and preferences</div>
+                  </div>
+                </div>
+                <div style="border-radius:12px; background:#141211; border:1px solid #221e1c">
+                  <div style="padding:13px 16px; border-bottom:1px solid #1d1a18; font-weight:600">Configuration</div>
+                  <div style="padding:13px 16px; font-size:12.5px; color:#8a827c; border-bottom:1px solid #191615">Everything outside this card is read from <span style="font-family:'JetBrains Mono',monospace; color:#c9c1bb">config.toml</span> and <span style="font-family:'JetBrains Mono',monospace; color:#c9c1bb">PROJECT_HOST_*</span> when the application starts. The core has no command that writes them back, so those screens report rather than edit.</div>
+                  <div style="display:flex; justify-content:space-between; padding:9px 16px; border-bottom:1px solid #191615"><span style="color:#9a928c">Mode</span><span style="font-family:'JetBrains Mono',monospace">production</span></div>
+                  <div style="display:flex; justify-content:space-between; padding:9px 16px; border-bottom:1px solid #191615"><span style="color:#9a928c">Maximum projects</span><span style="font-family:'JetBrains Mono',monospace">50</span></div>
+                  <div style="display:flex; justify-content:space-between; padding:9px 16px"><span style="color:#9a928c">Largest upload</span><span style="font-family:'JetBrains Mono',monospace">2.0 GB</span></div>
+                </div>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ setStorage }}" hint-placeholder-val="{{ false }}">
+              <div style="display:grid; grid-template-columns:1.2fr 1fr; gap:14px; align-items:start">
+                <div style="border-radius:12px; background:#141211; border:1px solid #221e1c">
+                  <div style="padding:13px 16px; border-bottom:1px solid #1d1a18; display:flex; justify-content:space-between; align-items:center">
+                    <span style="font-weight:600">Locations</span>
+                    <span style="font-size:12px; color:var(--ac,#f2620a); cursor:pointer">Open a project folder</span>
+                  </div>
+                  <div style="display:flex; justify-content:space-between; align-items:center; padding:9px 16px; border-bottom:1px solid #191615"><span style="color:#9a928c">Data</span><span style="font-family:'JetBrains Mono',monospace; font-size:12px">C:\ProgramData\ProjectHost\data</span></div>
+                  <div style="display:flex; justify-content:space-between; align-items:center; padding:9px 16px; border-bottom:1px solid #191615"><span style="color:#9a928c">Projects</span><span style="font-family:'JetBrains Mono',monospace; font-size:12px">C:\ProgramData\ProjectHost\projects</span></div>
+                  <div style="display:flex; justify-content:space-between; align-items:center; padding:9px 16px; border-bottom:1px solid #191615"><span style="color:#9a928c">Logs</span><span style="font-family:'JetBrains Mono',monospace; font-size:12px">C:\ProgramData\ProjectHost\logs</span></div>
+                  <div style="display:flex; justify-content:space-between; align-items:center; padding:9px 16px"><span style="color:#9a928c">Backups</span><span style="font-family:'JetBrains Mono',monospace; font-size:12px">C:\ProgramData\ProjectHost\backups</span></div>
+                </div>
+                <div style="border-radius:12px; background:#141211; border:1px solid #221e1c">
+                  <div style="padding:13px 16px; border-bottom:1px solid #1d1a18">
+                    <div style="font-weight:600">Disk</div>
+                    <div style="font-size:12px; color:#7d756f; margin-top:1px; font-family:'JetBrains Mono',monospace">C:\</div>
+                  </div>
+                  <div style="padding:16px 16px 6px">
+                    <div style="height:6px; border-radius:999px; background:#221e1c; overflow:hidden"><div style="width:86%; height:6px; background:#e3a008"></div></div>
+                  </div>
+                  <div style="display:flex; justify-content:space-between; padding:9px 16px; border-bottom:1px solid #191615"><span style="color:#9a928c">Used</span><span style="font-family:'JetBrains Mono',monospace">344 GB</span></div>
+                  <div style="display:flex; justify-content:space-between; padding:9px 16px; border-bottom:1px solid #191615"><span style="color:#9a928c">Total</span><span style="font-family:'JetBrains Mono',monospace">400 GB</span></div>
+                  <div style="display:flex; justify-content:space-between; padding:9px 16px"><span style="color:#9a928c">Free</span><span style="font-family:'JetBrains Mono',monospace">56 GB</span></div>
+                </div>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ setUpdates }}" hint-placeholder-val="{{ false }}">
+              <div style="display:grid; grid-template-columns:1.2fr 1fr; gap:14px; align-items:start">
+                <div style="border-radius:12px; background:#141211; border:1px solid #221e1c">
+                  <div style="padding:13px 16px; border-bottom:1px solid #1d1a18; display:flex; justify-content:space-between; align-items:center">
+                    <span style="font-weight:600">Updates</span>
+                    <span onClick="{{ openUpdate }}" style="height:26px; padding:0 12px; border-radius:999px; border:1px solid #2a2523; color:#c9c1bb; font-size:12px; display:flex; align-items:center; cursor:pointer">Check now</span>
+                  </div>
+                  <div style="display:flex; justify-content:space-between; padding:9px 16px; border-bottom:1px solid #191615"><span style="color:#9a928c">Installed version</span><span style="font-family:'JetBrains Mono',monospace">0.1.12</span></div>
+                  <div style="display:flex; justify-content:space-between; padding:9px 16px; border-bottom:1px solid #191615"><span style="color:#9a928c">Release channel</span><span>stable</span></div>
+                  <div style="display:flex; justify-content:space-between; padding:9px 16px; border-bottom:1px solid #191615"><span style="color:#9a928c">Check on startup</span><span>on</span></div>
+                  <div style="display:flex; justify-content:space-between; padding:9px 16px; border-bottom:1px solid #191615"><span style="color:#9a928c">Check while running</span><span>every 6 hours</span></div>
+                  <div style="display:flex; justify-content:space-between; padding:9px 16px"><span style="color:#9a928c">Signature check</span><span>required</span></div>
+                </div>
+                <div style="border-radius:12px; background:rgba(242,98,10,0.06); border:1px solid rgba(242,98,10,0.22); padding:16px; display:flex; flex-direction:column; gap:10px">
+                  <div style="display:flex; align-items:center; gap:10px">
+                    <div style="width:30px; height:30px; border-radius:9px; background:rgba(242,98,10,0.16); color:var(--ac,#f2620a); display:flex; align-items:center; justify-content:center">↓</div>
+                    <div><div style="font-weight:600; font-size:13.5px">0.1.15 is available</div><div style="font-size:12px; color:#a3927f">Signed, verified, then installed.</div></div>
+                  </div>
+                  <div onClick="{{ openUpdate }}" style="height:30px; border-radius:999px; background:var(--ac,#f2620a); color:#180d04; font-weight:600; font-size:12.5px; display:flex; align-items:center; justify-content:center; cursor:pointer">Install now</div>
+                </div>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ setSystem }}" hint-placeholder-val="{{ false }}">
+              <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px; align-items:start">
+                <div style="border-radius:12px; background:#141211; border:1px solid #221e1c">
+                  <div style="padding:13px 16px; border-bottom:1px solid #1d1a18; font-weight:600">Application</div>
+                  <div style="display:flex; justify-content:space-between; padding:9px 16px; border-bottom:1px solid #191615"><span style="color:#9a928c">Version</span><span style="font-family:'JetBrains Mono',monospace">0.1.12</span></div>
+                  <div style="display:flex; justify-content:space-between; padding:9px 16px; border-bottom:1px solid #191615"><span style="color:#9a928c">Database schema</span><span style="font-family:'JetBrains Mono',monospace">5</span></div>
+                  <div style="display:flex; justify-content:space-between; padding:9px 16px; border-bottom:1px solid #191615"><span style="color:#9a928c">Uptime</span><span style="font-family:'JetBrains Mono',monospace">4m</span></div>
+                  <div style="display:flex; justify-content:space-between; padding:9px 16px"><span style="color:#9a928c">Started</span><span style="font-family:'JetBrains Mono',monospace; font-size:12px">2026-08-26T19:25:33Z</span></div>
+                </div>
+                <div style="border-radius:12px; background:#141211; border:1px solid #221e1c">
+                  <div style="padding:13px 16px; border-bottom:1px solid #1d1a18; font-weight:600">Machine</div>
+                  <div style="display:flex; justify-content:space-between; padding:9px 16px; border-bottom:1px solid #191615"><span style="color:#9a928c">Logical cores</span><span style="font-family:'JetBrains Mono',monospace">4</span></div>
+                  <div style="display:flex; justify-content:space-between; padding:9px 16px; border-bottom:1px solid #191615"><span style="color:#9a928c">Memory</span><span style="font-family:'JetBrains Mono',monospace">7.9 GB</span></div>
+                  <div style="display:flex; justify-content:space-between; padding:9px 16px; border-bottom:1px solid #191615"><span style="color:#9a928c">Projects volume</span><span style="font-family:'JetBrains Mono',monospace">C:\</span></div>
+                  <div style="padding:14px 16px"><div style="height:30px; width:fit-content; padding:0 14px; border-radius:999px; border:1px solid #2a2523; color:#c9c1bb; font-size:12.5px; display:flex; align-items:center; cursor:pointer">Copy diagnostics</div></div>
+                </div>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ setOther }}" hint-placeholder-val="{{ false }}">
+              <div style="border-radius:12px; background:#141211; border:1px solid #221e1c; padding:60px 24px; display:flex; flex-direction:column; align-items:center; gap:10px; text-align:center">
+                <div style="width:44px; height:44px; border-radius:12px; background:#1d1a18; display:flex; align-items:center; justify-content:center; font-size:18px; color:#7d756f">⚙</div>
+                <div style="font-size:16px; font-weight:600; margin-top:4px">{{ setOtherTitle }}</div>
+                <div style="color:#8a827c; font-size:12.5px; max-width:400px">These values are read from the config file at startup. Change the file and restart.</div>
+              </div>
+            </sc-if>
+          </div>
+        </sc-if>
+
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ showUpdate }}" hint-placeholder-val="{{ false }}">
+    <div onClick="{{ closeModal }}" style="position:absolute; inset:0; background:rgba(6,5,5,0.72); display:flex; align-items:center; justify-content:center; backdrop-filter:blur(3px)">
+      <div style="width:520px; border-radius:14px; background:#131211; border:1px solid #2a2523; box-shadow:0 24px 60px rgba(0,0,0,0.6); overflow:hidden">
+        <div style="display:flex; align-items:center; gap:11px; padding:14px 16px; border-bottom:1px solid #1d1a18">
+          <div style="width:28px; height:28px; border-radius:8px; background:var(--ac,#f2620a); color:#180d04; font-weight:700; font-size:13px; display:flex; align-items:center; justify-content:center">P</div>
+          <div style="flex:1"><div style="font-weight:600; font-size:13.5px">Panel Platform</div><div style="font-size:11.5px; color:#7d756f">Software update</div></div>
+          <div onClick="{{ closeModal }}" style="color:#7d756f; cursor:pointer; padding:2px 6px">×</div>
+        </div>
+        <div style="padding:18px 20px 20px">
+          <div style="display:flex; align-items:flex-start; gap:12px">
+            <div style="width:34px; height:34px; flex:none; border-radius:10px; background:rgba(242,98,10,0.14); color:var(--ac,#f2620a); display:flex; align-items:center; justify-content:center">↓</div>
+            <div>
+              <div style="font-size:17px; font-weight:600; letter-spacing:-0.015em">Version 0.1.15 is available</div>
+              <div style="color:#8a827c; font-size:12.5px; margin-top:2px">It will be downloaded, checked against the signing key, and installed.</div>
+            </div>
+          </div>
+          <div style="display:flex; align-items:center; gap:8px; margin-top:18px">
+            <span style="display:flex; align-items:center; gap:6px; font-size:11.5px; color:var(--ac,#f2620a)"><span style="width:16px; height:16px; border-radius:999px; background:var(--ac,#f2620a); color:#180d04; font-size:9px; display:flex; align-items:center; justify-content:center">1</span>Download</span>
+            <span style="flex:1; height:1px; background:#262220"></span>
+            <span style="display:flex; align-items:center; gap:6px; font-size:11.5px; color:#6f6862"><span style="width:16px; height:16px; border-radius:999px; border:1px solid #332d2a; font-size:9px; display:flex; align-items:center; justify-content:center">2</span>Verify</span>
+            <span style="flex:1; height:1px; background:#262220"></span>
+            <span style="display:flex; align-items:center; gap:6px; font-size:11.5px; color:#6f6862"><span style="width:16px; height:16px; border-radius:999px; border:1px solid #332d2a; font-size:9px; display:flex; align-items:center; justify-content:center">3</span>Install</span>
+            <span style="flex:1; height:1px; background:#262220"></span>
+            <span style="display:flex; align-items:center; gap:6px; font-size:11.5px; color:#6f6862"><span style="width:16px; height:16px; border-radius:999px; border:1px solid #332d2a; font-size:9px; display:flex; align-items:center; justify-content:center">4</span>Restart</span>
+          </div>
+          <div style="margin-top:16px; border-radius:10px; background:#0f0e0d; border:1px solid #201c1a; padding:14px 16px; max-height:230px; overflow:auto">
+            <div style="font-size:10.5px; letter-spacing:0.12em; color:#6f6862; font-weight:600">WHAT'S NEW</div>
+            <div style="font-size:14px; font-weight:600; margin-top:10px">Your projects run on your machine, not in a container</div>
+            <div style="font-size:12.5px; color:#9a928c; margin-top:4px; line-height:1.55">Host mode is now how a project runs: the application starts the process itself, watches it, restarts it when it dies and stops it when you quit. Docker is no longer something you install before you can run your own code on your own computer.</div>
+            <div style="font-size:14px; font-weight:600; margin-top:14px">A static site serves itself</div>
+            <div style="font-size:12.5px; color:#9a928c; margin-top:4px; line-height:1.55">The application now carries a small read-only HTTP server and uses it, so a static site needs neither a container nor a language it does not use.</div>
+            <div style="font-size:14px; font-weight:600; margin-top:14px">Discord bots actually connect</div>
+            <div style="font-size:12.5px; color:#9a928c; margin-top:4px; line-height:1.55">A bot is added by its token, which is stored on this machine and never sent anywhere else.</div>
+          </div>
+          <div style="display:flex; align-items:center; gap:10px; margin-top:18px">
+            <div style="font-size:11.5px; color:#6f6862; font-family:'JetBrains Mono',monospace">installed 0.1.12</div>
+            <div style="flex:1"></div>
+            <div onClick="{{ closeModal }}" style="height:32px; padding:0 14px; border-radius:999px; border:1px solid #2a2523; color:#c9c1bb; font-size:12.5px; display:flex; align-items:center; cursor:pointer">Later</div>
+            <div onClick="{{ closeModal }}" style="height:32px; padding:0 16px; border-radius:999px; background:var(--ac,#f2620a); color:#180d04; font-weight:600; font-size:12.5px; display:flex; align-items:center; gap:6px; cursor:pointer">↓ Install now</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ showWizard }}" hint-placeholder-val="{{ false }}">
+    <div onClick="{{ closeModal }}" style="position:absolute; inset:0; background:rgba(6,5,5,0.72); display:flex; align-items:center; justify-content:center; backdrop-filter:blur(3px)">
+      <div style="width:640px; border-radius:14px; background:#131211; border:1px solid #2a2523; box-shadow:0 24px 60px rgba(0,0,0,0.6); overflow:hidden">
+        <div style="display:flex; align-items:flex-start; gap:11px; padding:16px 18px; border-bottom:1px solid #1d1a18">
+          <div style="flex:1">
+            <div style="font-size:17px; font-weight:600; letter-spacing:-0.015em">New project</div>
+            <div style="font-size:12.5px; color:#8a827c; margin-top:1px">{{ wizardSub }}</div>
+          </div>
+          <div onClick="{{ closeModal }}" style="color:#7d756f; cursor:pointer; padding:2px 6px">×</div>
+        </div>
+        <div style="padding:16px 18px 0; display:flex; align-items:center; gap:8px">
+          <sc-for list="{{ wizardSteps }}" as="s" hint-placeholder-count="4">
+            <div style="{{ s.wrap }}">
+              <span style="{{ s.dot }}">{{ s.num }}</span>
+              <span>{{ s.label }}</span>
+              <span style="{{ s.line }}"></span>
+            </div>
+          </sc-for>
+        </div>
+
+        <div style="padding:18px">
+          <sc-if value="{{ wizStep1 }}" hint-placeholder-val="{{ true }}">
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px">
+              <div style="padding:14px; border-radius:11px; background:rgba(242,98,10,0.07); border:1px solid rgba(242,98,10,0.4); cursor:pointer">
+                <div style="font-size:13.5px; font-weight:600; display:flex; align-items:center; gap:8px">Empty project</div>
+                <div style="font-size:12px; color:#a3927f; margin-top:3px">Start with nothing and add files yourself</div>
+              </div>
+              <div style="padding:14px; border-radius:11px; background:#171514; border:1px solid #242020; cursor:pointer" style-hover="border-color:#3a332f">
+                <div style="font-size:13.5px; font-weight:600">Git repository</div>
+                <div style="font-size:12px; color:#8a827c; margin-top:3px">Clone from GitHub or any https remote</div>
+              </div>
+              <div style="padding:14px; border-radius:11px; background:#171514; border:1px solid #242020; cursor:pointer" style-hover="border-color:#3a332f">
+                <div style="font-size:13.5px; font-weight:600">GitHub CLI</div>
+                <div style="font-size:12px; color:#8a827c; margin-top:3px; font-family:'JetBrains Mono',monospace">owner/repo, using your gh login</div>
+              </div>
+              <div style="padding:14px; border-radius:11px; background:#171514; border:1px solid #242020; cursor:pointer" style-hover="border-color:#3a332f">
+                <div style="font-size:13.5px; font-weight:600">Archive URL</div>
+                <div style="font-size:12px; color:#8a827c; margin-top:3px">Download a .zip or .tar.gz</div>
+              </div>
+            </div>
+            <div style="font-size:12px; color:#6f6862; margin-top:14px; line-height:1.55">Importing a folder is not offered here: the core creates a project from an empty folder or a remote address, and files from this machine are dragged into the editor afterwards.</div>
+          </sc-if>
+
+          <sc-if value="{{ wizStep2 }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex; flex-direction:column; gap:14px">
+              <div>
+                <div style="font-size:12.5px; color:#c9c1bb; margin-bottom:6px">Name</div>
+                <div style="height:38px; border-radius:10px; background:#171514; border:1px solid rgba(242,98,10,0.55); box-shadow:0 0 0 3px rgba(242,98,10,0.1); display:flex; align-items:center; padding:0 12px; color:#6f6862">My Discord bot</div>
+                <div style="font-size:11.5px; color:#6f6862; margin-top:6px">Shown throughout the application. The folder name is derived from it.</div>
+              </div>
+              <div>
+                <div style="font-size:12.5px; color:#c9c1bb; margin-bottom:6px">Description</div>
+                <div style="height:38px; border-radius:10px; background:#171514; border:1px solid #242020; display:flex; align-items:center; padding:0 12px; color:#6f6862">Optional</div>
+              </div>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ wizStep3 }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex; flex-direction:column; gap:12px">
+              <div style="font-size:12.5px; color:#8a827c">An empty project has no files to read, so choose the runtime yourself.</div>
+              <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:8px">
+                <sc-for list="{{ runtimes }}" as="r" hint-placeholder-count="6">
+                  <div onClick="{{ r.onClick }}" style="{{ r.style }}">
+                    <span style="width:20px; height:20px; border-radius:6px; background:{{ r.color }}; display:flex; align-items:center; justify-content:center; font-size:10px; color:#120d08; font-weight:700">{{ r.initial }}</span>
+                    {{ r.name }}
+                  </div>
+                </sc-for>
+              </div>
+              <div style="font-size:11.5px; color:#6f6862">The list comes from the core, so every option here can actually be built.</div>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ wizStep4 }}" hint-placeholder-val="{{ false }}">
+            <div style="border-radius:11px; background:#0f0e0d; border:1px solid #201c1a">
+              <div style="display:flex; justify-content:space-between; padding:10px 14px; border-bottom:1px solid #191615"><span style="color:#9a928c">Source</span><span>Empty project</span></div>
+              <div style="display:flex; justify-content:space-between; padding:10px 14px; border-bottom:1px solid #191615"><span style="color:#9a928c">Name</span><span>My Discord bot</span></div>
+              <div style="display:flex; justify-content:space-between; padding:10px 14px; border-bottom:1px solid #191615"><span style="color:#9a928c">Folder</span><span style="font-family:'JetBrains Mono',monospace">my-discord-bot</span></div>
+              <div style="display:flex; justify-content:space-between; padding:10px 14px"><span style="color:#9a928c">Runtime</span><span>{{ chosenRuntime }}</span></div>
+            </div>
+          </sc-if>
+        </div>
+
+        <div style="display:flex; align-items:center; gap:8px; padding:0 18px 18px">
+          <div onClick="{{ closeModal }}" style="font-size:12.5px; color:#8a827c; cursor:pointer; padding:6px 8px">Cancel</div>
+          <div style="flex:1"></div>
+          <div onClick="{{ wizBack }}" style="{{ backStyle }}">Back</div>
+          <div onClick="{{ wizNext }}" style="height:32px; padding:0 18px; border-radius:999px; background:var(--ac,#f2620a); color:#180d04; font-weight:600; font-size:12.5px; display:flex; align-items:center; cursor:pointer">{{ nextLabel }}</div>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1280,&quot;height&quot;:840}}">
+class Component extends DCLogic {
+  state = {
+    screen: "overview",
+    projTab: "Overview",
+    setTab: "Appearance",
+    modal: null,
+    wizStep: 1,
+    runtime: "Node",
+    accent: "#f2620a",
+    theme: "Dark",
+    collapse: false,
+    confirm: true
+  };
+
+  nav(active) {
+    return "display:flex; align-items:center; gap:9px; height:31px; padding:0 10px; border-radius:9px; font-size:13px; cursor:pointer; " +
+      (active
+        ? "background:#211d1b; color:#f5f0ec; font-weight:600; box-shadow:inset 2px 0 0 " + this.state.accent + ";"
+        : "color:#a29a94;");
+  }
+
+  tab(active) {
+    return "padding:8px 13px; font-size:12.5px; cursor:pointer; border-radius:8px 8px 0 0; " +
+      (active
+        ? "color:#f5f0ec; font-weight:600; box-shadow:inset 0 -2px 0 " + this.state.accent + ";"
+        : "color:#8a827c;");
+  }
+
+  toggle(on) {
+    return "width:38px; height:21px; flex:none; border-radius:999px; padding:2px; cursor:pointer; display:flex; justify-content:" +
+      (on ? "flex-end" : "flex-start") + "; background:" + (on ? this.state.accent : "#2a2523") + ";";
+  }
+
+  knob(on) {
+    return "width:17px; height:17px; border-radius:999px; background:" + (on ? "#180d04" : "#8a827c") + ";";
+  }
+
+  renderVals() {
+    const s = this.state;
+    const go = (screen) => () => this.setState({ screen, modal: null });
+    const isProj = s.screen === "project";
+
+    const projTabs = ["Overview", "Deployments", "History", "Networking", "Environment", "Resources", "Settings"].map((label) => ({
+      label,
+      style: this.tab(s.projTab === label),
+      onClick: () => this.setState({ projTab: label })
+    }));
+
+    const settingsTabs = ["General", "Appearance", "Preferences", "Advanced", "Docker", "Storage", "Networking", "Updates", "Logging", "System information"].map((label) => ({
+      label,
+      style: this.tab(s.setTab === label),
+      onClick: () => this.setState({ setTab: label })
+    }));
+
+    const themeDefs = [
+      ["Dark", "linear-gradient(160deg,#26211e,#100f0e)", "The default charcoal. Neutral, so project colours stay readable."],
+      ["Light", "linear-gradient(160deg,#ffffff,#e6e1dc)", "For bright rooms and screen sharing."],
+      ["Amber", "linear-gradient(160deg,#e3a008,#3a2a10)", "Warm greys with a low-blue cast, for long evenings."],
+      ["Midnight", "linear-gradient(160deg,#2a2f52,#0b0c14)", "Deep blue-black with more contrast between layers."],
+      ["Nord", "linear-gradient(160deg,#5a6b82,#1a1f26)", "Cool slate, softer whites, lower overall contrast."]
+    ];
+    const themes = themeDefs.map(([name, swatch, desc]) => {
+      const on = s.theme === name;
+      return {
+        name, swatch, desc,
+        check: on ? "color:" + s.accent + "; font-size:11px" : "display:none",
+        style: "display:flex; gap:11px; padding:12px; border-radius:11px; cursor:pointer; " +
+          (on ? "background:rgba(242,98,10,0.07); border:1px solid " + s.accent + ";" : "background:#171514; border:1px solid #242020;"),
+        onClick: () => this.setState({ theme: name })
+      };
+    });
+
+    const accents = ["#f2620a", "#a855f7", "#10b981", "#e3a008", "#f0577a", "#38bdf8"].map((c) => ({
+      check: s.accent === c ? "✓" : "",
+      style: "width:28px; height:28px; border-radius:999px; background:" + c +
+        "; display:flex; align-items:center; justify-content:center; color:#180d04; font-size:13px; font-weight:700; cursor:pointer; " +
+        (s.accent === c ? "box-shadow:0 0 0 2px #141211, 0 0 0 4px " + c + ";" : ""),
+      onClick: () => this.setState({ accent: c })
+    }));
+
+    const runtimeDefs = [["Node", "#8cc84b"], ["Python", "#ffd845"], ["Static site", "#38bdf8"], ["Discord bot", "#a855f7"], ["Go", "#00acd7"], ["Polyglot", "#f0577a"]];
+    const runtimes = runtimeDefs.map(([name, color]) => ({
+      name, color, initial: name[0],
+      style: "display:flex; align-items:center; gap:8px; padding:10px 11px; border-radius:10px; font-size:12.5px; cursor:pointer; " +
+        (s.runtime === name ? "background:rgba(242,98,10,0.07); border:1px solid " + s.accent + ";" : "background:#171514; border:1px solid #242020;"),
+      onClick: () => this.setState({ runtime: name })
+    }));
+
+    const wizardSteps = ["Source", "Details", "Runtime", "Review"].map((label, i) => {
+      const n = i + 1;
+      const done = s.wizStep > n;
+      const cur = s.wizStep === n;
+      return {
+        label, num: done ? "✓" : String(n),
+        wrap: "display:flex; align-items:center; gap:7px; font-size:12px; " + (n === 4 ? "" : "flex:1; ") +
+          (cur ? "color:#f5f0ec; font-weight:600;" : done ? "color:#8a827c;" : "color:#6f6862;"),
+        dot: "width:18px; height:18px; flex:none; border-radius:999px; font-size:10px; display:flex; align-items:center; justify-content:center; " +
+          (cur ? "background:" + s.accent + "; color:#180d04; font-weight:700;"
+               : done ? "background:rgba(78,194,106,0.16); color:#4ec26a;"
+               : "border:1px solid #332d2a;"),
+        line: n === 4 ? "display:none" : "flex:1; height:1px; background:#262220"
+      };
+    });
+
+    const wizSubs = { 1: "Where the files come from", 2: "Name and description", 3: "How it is built and started", 4: "Check and create" };
+    const projEmptyCopy = {
+      Deployments: ["No deployments yet", "A deployment is recorded each time the project is built or started. Start the project to create the first one."],
+      History: ["Nothing has happened yet", "Starts, stops and crashes for this project's container will be listed here."],
+      Environment: ["No environment variables", "Nothing is set for this project. Editing them from this screen is not built yet."],
+      Resources: ["Limits: 512 MB · 1 core · 2.0 GB", "Per-project CPU and memory are not measured yet. The machine's own usage is on the Overview page."],
+      Settings: ["Configuration is read-only", "The core has no command that writes these fields, so this screen reports what the project is actually running with."]
+    };
+    const pe = projEmptyCopy[s.projTab];
+
+    return {
+      accent: s.accent,
+      isEditor: s.screen === "editor",
+      isApp: s.screen !== "editor",
+      isOverview: s.screen === "overview",
+      isProjects: s.screen === "projects",
+      isProject: isProj,
+      isActivity: s.screen === "activity",
+      isDiscord: s.screen === "discord",
+      isSettings: s.screen === "settings",
+      showDockerWarning: true,
+
+      navOverview: this.nav(s.screen === "overview"),
+      navProjects: this.nav(s.screen === "projects"),
+      navActivity: this.nav(s.screen === "activity"),
+      navDiscord: this.nav(s.screen === "discord"),
+      navSettings: this.nav(s.screen === "settings"),
+      navProject: this.nav(isProj),
+
+      goOverview: go("overview"),
+      goProjects: go("projects"),
+      goActivity: go("activity"),
+      goDiscord: go("discord"),
+      goSettings: go("settings"),
+      goProject: go("project"),
+      goEditor: go("editor"),
+
+      projectTabs: projTabs,
+      projOverview: isProj && s.projTab === "Overview",
+      projNetworking: isProj && s.projTab === "Networking",
+      projEmpty: isProj && !!pe,
+      emptyTitle: pe ? pe[0] : "",
+      emptyBody: pe ? pe[1] : "",
+
+      settingsTabs,
+      setGeneral: s.setTab === "General",
+      setAppearance: s.setTab === "Appearance",
+      setStorage: s.setTab === "Storage",
+      setUpdates: s.setTab === "Updates",
+      setSystem: s.setTab === "System information",
+      setOther: ["Preferences", "Advanced", "Docker", "Networking", "Logging"].indexOf(s.setTab) > -1,
+      setOtherTitle: s.setTab,
+
+      themes, accents,
+      collapseTrack: this.toggle(s.collapse),
+      collapseKnob: this.knob(s.collapse),
+      confirmTrack: this.toggle(s.confirm),
+      confirmKnob: this.knob(s.confirm),
+      toggleCollapse: () => this.setState({ collapse: !s.collapse }),
+      toggleConfirm: () => this.setState({ confirm: !s.confirm }),
+
+      showUpdate: s.modal === "update",
+      showWizard: s.modal === "wizard",
+      openUpdate: () => this.setState({ modal: "update" }),
+      openWizard: () => this.setState({ modal: "wizard", wizStep: 1 }),
+      closeModal: () => this.setState({ modal: null }),
+
+      wizardSteps,
+      wizardSub: wizSubs[s.wizStep],
+      wizStep1: s.wizStep === 1,
+      wizStep2: s.wizStep === 2,
+      wizStep3: s.wizStep === 3,
+      wizStep4: s.wizStep === 4,
+      runtimes,
+      chosenRuntime: s.runtime,
+      nextLabel: s.wizStep === 4 ? "Create project" : "Next",
+      backStyle: "height:32px; padding:0 14px; border-radius:999px; border:1px solid #2a2523; font-size:12.5px; display:flex; align-items:center; cursor:pointer; " +
+        (s.wizStep === 1 ? "color:#4a443f; border-color:#221e1c;" : "color:#c9c1bb;"),
+      wizBack: () => this.setState({ wizStep: Math.max(1, s.wizStep - 1) }),
+      wizNext: () => (s.wizStep === 4 ? this.setState({ modal: null, screen: "projects" }) : this.setState({ wizStep: s.wizStep + 1 }))
+    };
+  }
+}
+
+</script>
+</body>
+</html>
