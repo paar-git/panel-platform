@@ -50,8 +50,31 @@ impl DockerStatus {
         }
     }
 
+    /// The probe has not finished yet. Distinct from "not installed": the
+    /// window can open with this, and the status bar must not tell the user
+    /// to install Docker before anyone has looked.
+    pub fn unchecked() -> Self {
+        Self {
+            available: false,
+            version: None,
+            api_version: None,
+            endpoint_kind: None,
+            install_hint: None,
+            error: None,
+            containers_running: None,
+        }
+    }
+
+    /// True when nobody has asked the daemon yet.
+    pub fn is_unchecked(&self) -> bool {
+        !self.available && self.install_hint.is_none() && self.error.is_none()
+    }
+
     /// A short line for logs and the status bar.
     pub fn summary(&self) -> String {
+        if self.is_unchecked() {
+            return "Docker status not yet checked".to_string();
+        }
         if self.available {
             match &self.version {
                 Some(version) => format!("Docker {version} available"),
@@ -127,5 +150,19 @@ mod tests {
         let json = serde_json::to_string(&status).expect("serialise");
         let back: DockerStatus = serde_json::from_str(&json).expect("deserialise");
         assert_eq!(back, status);
+    }
+
+    #[test]
+    fn an_unchecked_status_is_neither_available_nor_a_missing_install() {
+        // Shown for the few seconds between the window opening and the
+        // background probe finishing. Collapsing this into "not installed"
+        // would flash a Docker install hint on every launch, including on
+        // machines where Docker is about to answer.
+        let status = DockerStatus::unchecked();
+        assert!(!status.available);
+        assert!(status.install_hint.is_none());
+        assert!(status.error.is_none());
+        assert!(status.is_unchecked());
+        assert_eq!(status.summary(), "Docker status not yet checked");
     }
 }

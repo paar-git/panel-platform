@@ -38,6 +38,7 @@ pub mod runner;
 pub mod runtime;
 pub mod runtime_plan;
 pub mod shutdown;
+pub mod startup;
 pub mod state;
 pub mod toolchain_flow;
 
@@ -48,8 +49,11 @@ pub use integration::IntegrationError;
 pub use logging::{LoggingGuard, RequestContext};
 pub use provisioning::{materialise_source, ProvisionError, SourceOutcome, SourceSpec};
 pub use runner::{Observed, ProjectRunner, StartContext};
-pub use runtime::{resolve_paths, Runtime, RuntimeError, APP_VERSION};
+pub use runtime::{
+    autostart_workloads, resolve_paths, run_optional_startup, Runtime, RuntimeError, APP_VERSION,
+};
 pub use runtime_plan::{plan_detected, plan_named, PlanError, RuntimePlan};
 pub use shutdown::{wait_for_signal, Shutdown};
+pub use startup::{StartupDiagnostics, StartupStage};
 pub use state::{AppState, Identity};
 pub use toolchain_flow::{assess, host_from_snapshot, MachineResolver, Readiness};

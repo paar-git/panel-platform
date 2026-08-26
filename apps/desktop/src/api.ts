@@ -85,6 +85,28 @@ export async function systemStatus(): Promise<SystemStatus> {
   return toCamel<SystemStatus>(await invoke('system_status'));
 }
 
+/** Whether the core has finished starting. Safe to call before any other command. */
+export type LaunchStatus =
+  { state: 'starting' } | { state: 'ready' } | { state: 'failed'; message: string };
+
+export async function launchStatus(): Promise<LaunchStatus> {
+  return toCamel<LaunchStatus>(await invoke('launch_status'));
+}
+
+export function onCoreReady(handler: () => void): Promise<() => void> {
+  return listen('core://ready', () => handler()).then((unlisten) => () => {
+    unlisten();
+  });
+}
+
+export function onCoreFailed(handler: (message: string) => void): Promise<() => void> {
+  return listen<string>('core://failed', (event) => handler(event.payload)).then(
+    (unlisten) => () => {
+      unlisten();
+    },
+  );
+}
+
 /** What the machine is carrying right now. */
 export interface MachineLoad {
   totalMemoryBytes: number;
@@ -335,6 +357,23 @@ export interface GitHubCliStatus {
 /** Asked before the GitHub CLI option is offered. */
 export async function githubCliStatus(): Promise<GitHubCliStatus> {
   return toCamel<GitHubCliStatus>(await invoke('github_cli_status'));
+}
+
+/** One named step of application launch, with how long it took. */
+export interface StartupStage {
+  name: string;
+  durationMs: number;
+  outcome: string;
+}
+
+/** What each launch stage cost, so a slow start names the stage that caused it. */
+export interface StartupDiagnostics {
+  stages: StartupStage[];
+  totalMs: number;
+}
+
+export async function startupDiagnostics(): Promise<StartupDiagnostics> {
+  return toCamel<StartupDiagnostics>(await invoke('startup_diagnostics'));
 }
 
 export interface RuntimeOption {

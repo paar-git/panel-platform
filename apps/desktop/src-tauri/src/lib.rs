@@ -6,7 +6,9 @@
 //! because anything that lives here cannot be tested without a window.
 //!
 //! The [`Runtime`] is started once, before the window opens, and handed to
-//! Tauri as managed state. Commands borrow it; none of them own it.
+//! Tauri as managed state. Commands borrow it; none of them own it. Docker,
+//! WSL and other optional probes run after the window exists, so a hung
+//! daemon cannot keep the window closed.
 
 #![cfg_attr(
     test,
@@ -27,8 +29,9 @@ use tauri::{Emitter, Manager};
 
 use project_host_api_types::RunMode;
 use project_host_core::provisioning::SourceSpec;
-use project_host_core::{resolve_paths, AppConfig, AppState, Runtime};
+use project_host_core::{resolve_paths, AppConfig, AppState, Runtime, StartupDiagnostics};
 use project_host_database::projects;
+use project_host_platform::PathProvider;
 use project_host_project_manager::names::{sanitise_display_name, Slug};
 use project_host_project_manager::ports::PortPool;
 use project_host_security::Secret;
@@ -133,6 +136,16 @@ impl<E: std::fmt::Display> From<E> for CommandError {
 
 type CommandResult<T> = Result<T, CommandError>;
 
+/// Whether the core has finished starting. The window is shown before that
+/// happens, so the loading page can ask this without talking to `AppState`.
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "state", rename_all = "snake_case")]
+enum LaunchStatus {
+    Starting,
+    Ready,
+    Failed { message: String },
+}
+
 /// The state the window shows in its header.
 #[derive(Debug, Serialize)]
 pub struct SystemStatus {
@@ -183,12 +196,32 @@ async fn system_status(state: tauri::State<'_, AppState>) -> CommandResult<Syste
         docker_available: docker.available,
         docker_summary: docker.summary(),
         docker_version: docker.version.clone(),
-        docker_hint: if docker.available {
+        docker_hint: if docker.available || docker.is_unchecked() {
             None
         } else {
             docker.install_hint.clone().or_else(|| docker.error.clone())
         },
     })
+}
+
+/// How long each startup stage took. Surfaced so a slow launch names the
+/// stage that caused it, rather than only that the window was late.
+#[tauri::command]
+fn startup_diagnostics(
+    diagnostics: tauri::State<'_, Arc<Mutex<StartupDiagnostics>>>,
+) -> CommandResult<StartupDiagnostics> {
+    Ok(diagnostics
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .clone())
+}
+
+#[tauri::command]
+fn launch_status(status: tauri::State<'_, Arc<Mutex<LaunchStatus>>>) -> LaunchStatus {
+    status
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .clone()
 }
 
 #[tauri::command]
@@ -699,9 +732,15 @@ async fn readiness_for(
             message: "This project has no runtime recorded.".to_string(),
         })?;
 
-    let snapshot = project_host_platform::probe::SystemProbe::snapshot(
-        &project_host_platform::probe::SystemScanner,
-    );
+    // Full scan: toolchain install needs WSL and firmware virtualization, which
+    // the launch snapshot deliberately skipped. Bounded subprocesses, so a
+    // wedged WSL delays Start rather than the window.
+    let snapshot =
+        tokio::task::spawn_blocking(|| project_host_platform::probe::SystemScanner.snapshot_full())
+            .await
+            .map_err(|error| CommandError {
+                message: format!("the machine scan did not finish: {error}"),
+            })?;
     let host = project_host_core::host_from_snapshot(
         &snapshot,
         project_host_core::toolchain_flow::winget_present(),
@@ -807,9 +846,12 @@ async fn install_toolchain(
         project_host_core::Readiness::NeedsInstall { steps } => steps,
     };
 
-    let snapshot = project_host_platform::probe::SystemProbe::snapshot(
-        &project_host_platform::probe::SystemScanner,
-    );
+    let snapshot =
+        tokio::task::spawn_blocking(|| project_host_platform::probe::SystemScanner.snapshot_full())
+            .await
+            .map_err(|error| CommandError {
+                message: format!("the machine scan did not finish: {error}"),
+            })?;
     let host = project_host_core::host_from_snapshot(
         &snapshot,
         project_host_core::toolchain_flow::winget_present(),
@@ -3052,39 +3094,100 @@ pub fn serve_static(request: StaticServerRequest) -> Result<(), Box<dyn std::err
 
 /// Build and run the application.
 ///
-/// The runtime is started *before* the window so that a database that cannot be
-/// opened is a clear failure at launch rather than an interface full of errors.
+/// The window opens first, on a loading page. Directories, the database and
+/// crash recovery run after that, because waiting for them is what made a
+/// click look like nothing happened. Docker and autostart run later still.
+/// PowerShell is not spawned on this path at all.
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     let config = AppConfig::load(&std::path::PathBuf::from("config.toml"))?;
     let paths = resolve_paths(&config)?;
-
-    let tokio_runtime = tokio::runtime::Runtime::new()?;
-    let mut runtime = tokio_runtime.block_on(Runtime::start(config, paths))?;
+    paths.ensure_all()?;
+    let _logging = match project_host_core::logging::init(&config, paths.log_dir()) {
+        Ok(guard) => Some(guard),
+        Err(error) => {
+            eprintln!("logging could not be initialised: {error}");
+            None
+        }
+    };
 
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
-    tokio_runtime.block_on(async {
-        runtime.spawn_docker_refresher(shutdown_rx.clone());
-        runtime.spawn_usage_sampler(shutdown_rx.clone());
-        // The task that makes a stored status mean something. Without it the
-        // database is only ever written when a lifecycle call returns, so a
-        // project that dies on its own reads as running until somebody presses
-        // a button — which is the exact failure `reconcile` was written for.
-        runtime.spawn_reconciler(shutdown_rx.clone());
-        runtime.spawn_power_manager(shutdown_rx);
-    });
-
-    let state = runtime.state().clone();
-    // Kept alive for the life of the process so the shutdown path can run it.
-    let runtime = Arc::new(tokio::sync::Mutex::new(Some(runtime)));
+    let launch = Arc::new(Mutex::new(LaunchStatus::Starting));
+    let launch_for_thread = launch.clone();
+    let core_thread = Arc::new(Mutex::new(None::<std::thread::JoinHandle<()>>));
+    let core_thread_for_setup = core_thread.clone();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .manage(state)
+        .manage(launch)
         .manage(FileImportCancels::default())
         .manage(UpdateActivity::default())
         .manage(Metrics::default())
+        .setup(move |app| {
+            let handle = app.handle().clone();
+            let thread = std::thread::Builder::new()
+                .name("panel-core".into())
+                .spawn(move || {
+                    let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build()
+                    else {
+                        tracing::error!("the core runtime could not be created");
+                        return;
+                    };
+                    runtime.block_on(async move {
+                        match Runtime::start(config, paths).await {
+                            Ok(mut started) => {
+                                started.spawn_docker_refresher(shutdown_rx.clone());
+                                started.spawn_usage_sampler(shutdown_rx.clone());
+                                started.spawn_reconciler(shutdown_rx.clone());
+                                started.spawn_power_manager(shutdown_rx.clone());
+
+                                handle.manage(started.state().clone());
+                                handle.manage(started.diagnostics_handle());
+                                *launch_for_thread
+                                    .lock()
+                                    .unwrap_or_else(|poisoned| poisoned.into_inner()) =
+                                    LaunchStatus::Ready;
+                                let _ = handle.emit("core://ready", ());
+
+                                started.complete_optional_startup().await;
+                                started.start_automatic_workloads().await;
+
+                                let mut shutdown_rx = shutdown_rx;
+                                loop {
+                                    if *shutdown_rx.borrow() {
+                                        break;
+                                    }
+                                    if shutdown_rx.changed().await.is_err() {
+                                        break;
+                                    }
+                                }
+                                started.shutdown().await;
+                            }
+                            Err(error) => {
+                                tracing::error!(%error, "the core could not start");
+                                let message = error.to_string();
+                                *launch_for_thread
+                                    .lock()
+                                    .unwrap_or_else(|poisoned| poisoned.into_inner()) =
+                                    LaunchStatus::Failed {
+                                        message: message.clone(),
+                                    };
+                                let _ = handle.emit("core://failed", message);
+                            }
+                        }
+                    });
+                })
+                .map_err(|error| error.to_string())?;
+            *core_thread_for_setup
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(thread);
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             system_status,
+            startup_diagnostics,
+            launch_status,
             list_projects,
             create_project,
             start_project,
@@ -3142,7 +3245,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             project_events
         ])
         .build(tauri::generate_context!())?
-        .run(move |app, event| {
+        .run(move |_app, event| {
             if let tauri::RunEvent::ExitRequested { .. } = event {
                 // Stop host projects and close the database cleanly, so the next
                 // start does not have to run recovery. Project *containers* are
@@ -3151,9 +3254,12 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
                 // die with it regardless — stopping them deliberately is what
                 // gets STOPPED recorded instead of a row claiming they run.
                 let _ = shutdown_tx.send_replace(true);
-                if let Some(runtime) = runtime.blocking_lock().take() {
-                    app.state::<AppState>();
-                    tokio_runtime.block_on(runtime.shutdown());
+                if let Some(thread) = core_thread
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .take()
+                {
+                    let _ = thread.join();
                 }
             }
         });

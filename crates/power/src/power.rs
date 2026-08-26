@@ -122,10 +122,12 @@ pub fn priority_command(pid: u32, priority: Priority) -> PriorityCommand {
         Priority::High => "AboveNormal",
     };
     PriorityCommand {
-        program: "powershell".to_string(),
+        program: "powershell.exe".to_string(),
         args: vec![
             "-NoProfile".to_string(),
             "-NonInteractive".to_string(),
+            "-WindowStyle".to_string(),
+            "Hidden".to_string(),
             "-Command".to_string(),
             format!("(Get-Process -Id {pid}).PriorityClass = '{class}'"),
         ],
@@ -180,11 +182,19 @@ pub enum PriorityError {
 pub async fn apply_priority(pid: u32, priority: Priority) -> Result<(), PriorityError> {
     let command = priority_command(pid, priority);
 
-    let status = tokio::process::Command::new(&command.program)
+    let mut spawned = tokio::process::Command::new(&command.program);
+    spawned
         .args(&command.args)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::null())
+        .stderr(Stdio::null());
+    #[cfg(windows)]
+    {
+        // Same reason as the probe: a console-subsystem PowerShell otherwise
+        // flashes a terminal every time a project's priority is applied.
+        spawned.creation_flags(0x0800_0000);
+    }
+    let status = spawned
         .status()
         .await
         .map_err(|source| PriorityError::NotRun {
@@ -356,6 +366,24 @@ mod tests {
         assert!(
             command.args.iter().any(|arg| arg.contains("4321")),
             "the pid is not in {:?}",
+            command.args
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_priority_changes_do_not_open_a_console() {
+        let command = priority_command(1, Priority::Normal);
+        assert_eq!(command.program, "powershell.exe");
+        assert!(
+            command
+                .args
+                .windows(2)
+                .any(
+                    |pair| pair.first().map(String::as_str) == Some("-WindowStyle")
+                        && pair.get(1).map(String::as_str) == Some("Hidden")
+                ),
+            "priority changes would flash a PowerShell window: {:?}",
             command.args
         );
     }

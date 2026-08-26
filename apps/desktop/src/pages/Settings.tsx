@@ -19,12 +19,14 @@ import {
   powerJournal,
   revealProjectPath,
   setPowerMode,
+  startupDiagnostics,
   systemMetrics,
   type AppSettings,
   type PowerJournalEntry,
   type PowerMode,
   type PowerStatus,
   type ProjectSummary,
+  type StartupDiagnostics,
   type SystemMetrics,
   type SystemStatus,
 } from '../api';
@@ -135,6 +137,7 @@ export default function Settings({
   const [metrics, setMetrics] = useState<SystemMetrics | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
   const [journal, setJournal] = useState<PowerJournalEntry[]>([]);
+  const [launch, setLaunch] = useState<StartupDiagnostics | null>(null);
   const update = useUpdate();
 
   const powerSummary = powerLook(power);
@@ -177,6 +180,13 @@ export default function Settings({
       .then(setMetrics)
       .catch(() => setMetrics(null));
   }, []);
+
+  useEffect(() => {
+    if (tab !== 'logging') return;
+    startupDiagnostics()
+      .then(setLaunch)
+      .catch(() => setLaunch(null));
+  }, [tab]);
 
   function copy(value: string, what: string) {
     navigator.clipboard
@@ -604,25 +614,47 @@ export default function Settings({
         )}
 
         {tab === 'logging' && (
-          <Card className="max-w-xl">
-            <CardHeader title="Logging" subtitle="What the core writes to disk" />
-            <div className="px-4 py-1">
-              <DataRow label="Level" value={settings?.logLevel ?? '—'} />
-              <DataRow
-                label="Format"
-                value={settings ? (settings.logJson ? 'structured JSON' : 'plain text') : '—'}
+          <div className="grid gap-4 lg:grid-cols-2">
+            <Card className="max-w-xl">
+              <CardHeader title="Logging" subtitle="What the core writes to disk" />
+              <div className="px-4 py-1">
+                <DataRow label="Level" value={settings?.logLevel ?? '—'} />
+                <DataRow
+                  label="Format"
+                  value={settings ? (settings.logJson ? 'structured JSON' : 'plain text') : '—'}
+                />
+                <DataRow
+                  label="Kept for"
+                  value={settings ? `${settings.logRetentionDays} days` : '—'}
+                />
+                {pathRow('Directory', settings?.logsDir)}
+              </div>
+              <p className="border-t border-edge px-4 py-2.5 text-[12px] text-muted">
+                Reading those files back into this window is not built yet, so nothing is shown here
+                that has not been read.
+              </p>
+            </Card>
+            <Card className="max-w-xl">
+              <CardHeader
+                title="This launch"
+                subtitle="Which stage took time, so a slow start names its cause"
               />
-              <DataRow
-                label="Kept for"
-                value={settings ? `${settings.logRetentionDays} days` : '—'}
-              />
-              {pathRow('Directory', settings?.logsDir)}
-            </div>
-            <p className="border-t border-edge px-4 py-2.5 text-[12px] text-muted">
-              Reading those files back into this window is not built yet, so nothing is shown here
-              that has not been read.
-            </p>
-          </Card>
+              <div className="px-4 py-1">
+                <DataRow label="Total" value={launch ? `${launch.totalMs} ms` : '—'} />
+                {(launch?.stages ?? []).map((stage) => (
+                  <DataRow
+                    key={stage.name}
+                    label={stage.name}
+                    value={`${stage.durationMs} ms · ${stage.outcome}`}
+                  />
+                ))}
+              </div>
+              <p className="border-t border-edge px-4 py-2.5 text-[12px] text-muted">
+                Stages after the window opened (Docker, the full machine scan) appear here once they
+                finish. A stage over 500 ms is also written as a warning in the log.
+              </p>
+            </Card>
+          </div>
         )}
 
         {tab === 'about' && (

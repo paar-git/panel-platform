@@ -81,7 +81,7 @@ pub async fn report(state: &AppState) -> HealthReport {
     let docker = state.docker_status().await;
     checks.push(Check {
         name: "docker".to_string(),
-        status: if docker.available {
+        status: if docker.available || docker.is_unchecked() {
             Health::Ok
         } else {
             Health::Degraded

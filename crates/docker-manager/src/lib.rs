@@ -108,11 +108,59 @@ impl BollardProbe {
             let Some(client) = build_client(&endpoint) else {
                 continue;
             };
-            if client.ping().await.is_ok() {
+            // A named pipe that exists while the daemon is still starting will
+            // accept a client and then never answer. Bounding ping is what
+            // lets us move on to the next candidate, or give up, instead of
+            // waiting forever.
+            if matches!(
+                tokio::time::timeout(CONNECT_TIMEOUT, client.ping()).await,
+                Ok(Ok(_))
+            ) {
                 return Ok(DockerConnection { client, endpoint });
             }
         }
         Err(DockerError::Unreachable)
+    }
+
+    async fn probe_inner(&self) -> DockerStatus {
+        let connection = match self.connect().await {
+            Ok(connection) => connection,
+            Err(_) => return DockerStatus::unavailable(self.provider.install_hint()),
+        };
+
+        let endpoint_kind = connection.endpoint().kind().to_string();
+
+        let version =
+            match tokio::time::timeout(CONNECT_TIMEOUT, connection.client().version()).await {
+                Ok(Ok(version)) => version,
+                // Reachable but unhealthy is a different state from absent, and the
+                // user needs to tell them apart to know what to do.
+                Ok(Err(error)) => return DockerStatus::degraded(endpoint_kind, error.to_string()),
+                Err(_) => {
+                    return DockerStatus::degraded(
+                        endpoint_kind,
+                        "The Docker daemon did not answer in time.".to_string(),
+                    )
+                }
+            };
+
+        let containers_running =
+            match tokio::time::timeout(CONNECT_TIMEOUT, connection.client().info()).await {
+                Ok(Ok(info)) => info
+                    .containers_running
+                    .and_then(|count| u32::try_from(count).ok()),
+                Ok(Err(_)) | Err(_) => None,
+            };
+
+        DockerStatus {
+            available: true,
+            version: version.version,
+            api_version: version.api_version,
+            endpoint_kind: Some(endpoint_kind),
+            install_hint: None,
+            error: None,
+            containers_running,
+        }
     }
 }
 
@@ -157,36 +205,16 @@ fn build_client(endpoint: &DockerEndpoint) -> Option<Docker> {
 #[async_trait::async_trait]
 impl DockerProbe for BollardProbe {
     async fn probe(&self) -> DockerStatus {
-        let connection = match self.connect().await {
-            Ok(connection) => connection,
-            Err(_) => return DockerStatus::unavailable(self.provider.install_hint()),
-        };
-
-        let endpoint_kind = connection.endpoint().kind().to_string();
-
-        let version = match connection.client().version().await {
-            Ok(version) => version,
-            // Reachable but unhealthy is a different state from absent, and the
-            // user needs to tell them apart to know what to do.
-            Err(error) => return DockerStatus::degraded(endpoint_kind, error.to_string()),
-        };
-
-        let containers_running = connection
-            .client()
-            .info()
-            .await
-            .ok()
-            .and_then(|info| info.containers_running)
-            .and_then(|count| u32::try_from(count).ok());
-
-        DockerStatus {
-            available: true,
-            version: version.version,
-            api_version: version.api_version,
-            endpoint_kind: Some(endpoint_kind),
-            install_hint: None,
-            error: None,
-            containers_running,
+        // The connect timeout on the client is not enough: a Windows named
+        // pipe that exists while Docker Desktop is still booting accepts the
+        // client and then never answers ping. Wrapping the whole probe is what
+        // stops that from looking like a hung application.
+        match tokio::time::timeout(CONNECT_TIMEOUT, self.probe_inner()).await {
+            Ok(status) => status,
+            Err(_) => DockerStatus::degraded(
+                "timeout".to_string(),
+                "The Docker daemon did not answer in time.".to_string(),
+            ),
         }
     }
 }
@@ -236,6 +264,50 @@ mod tests {
             probe.connect().await,
             Err(DockerError::Unreachable)
         ));
+    }
+
+    #[derive(Debug)]
+    struct BlackHole(String);
+
+    impl DockerProvider for BlackHole {
+        fn candidates(&self) -> Vec<project_host_platform::docker::DockerEndpoint> {
+            vec![project_host_platform::docker::DockerEndpoint::Tcp(
+                self.0.clone(),
+            )]
+        }
+        fn install_hint(&self) -> project_host_platform::docker::DockerInstallHint {
+            project_host_platform::docker::DockerInstallHint {
+                summary: "not installed".to_string(),
+                detail: "install it".to_string(),
+                url: "https://example.invalid".to_string(),
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn a_daemon_that_accepts_and_never_replies_does_not_hang_the_probe() {
+        // A TCP port that accepts connections and then sits silent is what a
+        // Docker named pipe looks like while Docker Desktop is still starting
+        // after a reboot. The connect timeout used to apply only to client
+        // construction, so ping/version waited forever and the window never
+        // opened.
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+        let address = listener.local_addr().expect("addr").to_string();
+        let _server = std::thread::spawn(move || {
+            if let Ok((stream, _)) = listener.accept() {
+                std::thread::sleep(std::time::Duration::from_secs(30));
+                drop(stream);
+            }
+        });
+
+        let probe = BollardProbe::new(Arc::new(BlackHole(address)));
+        let result = tokio::time::timeout(std::time::Duration::from_secs(6), probe.probe()).await;
+        assert!(
+            result.is_ok(),
+            "the Docker probe hung past its timeout on a mute endpoint"
+        );
+        let status = result.expect("timed out");
+        assert!(!status.available, "a mute daemon is not a working daemon");
     }
 
     /// Runs against whatever this host actually has. It asserts internal

@@ -35,15 +35,15 @@ pub fn run(step: &Step, host: &Host, display_name: &str) -> Result<(), Blocker> 
         (step.program.clone(), step.args.clone())
     };
 
-    let output = Command::new(&program)
-        .args(&args)
-        .output()
-        .map_err(|error| Blocker::StepFailed {
-            display_name: display_name.to_string(),
-            program: program.clone(),
-            code: -1,
-            output: error.to_string(),
-        })?;
+    let mut command = Command::new(&program);
+    command.args(&args);
+    project_host_platform::hide_console(&mut command);
+    let output = command.output().map_err(|error| Blocker::StepFailed {
+        display_name: display_name.to_string(),
+        program: program.clone(),
+        code: -1,
+        output: error.to_string(),
+    })?;
 
     match output.status.code() {
         Some(0) | None => Ok(()),
@@ -115,15 +115,17 @@ fn user_path() -> Option<String> {
 
 #[cfg(windows)]
 fn read_environment(scope: &str) -> Option<String> {
-    let output = Command::new("powershell.exe")
-        .args([
-            "-NoProfile",
-            "-NonInteractive",
-            "-Command",
-            &format!("[Environment]::GetEnvironmentVariable('Path','{scope}')"),
-        ])
-        .output()
-        .ok()?;
+    let mut command = Command::new("powershell.exe");
+    command.args([
+        "-NoProfile",
+        "-NonInteractive",
+        "-WindowStyle",
+        "Hidden",
+        "-Command",
+        &format!("[Environment]::GetEnvironmentVariable('Path','{scope}')"),
+    ]);
+    project_host_platform::hide_console(&mut command);
+    let output = command.output().ok()?;
 
     if !output.status.success() {
         return None;

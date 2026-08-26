@@ -239,6 +239,11 @@ impl AppState {
         *self.0.docker_status.write().await = status.clone();
         status
     }
+
+    /// Store a status without probing. Used when the probe itself timed out.
+    pub async fn replace_docker_status(&self, status: DockerStatus) {
+        *self.0.docker_status.write().await = status;
+    }
 }
 
 impl std::fmt::Debug for Inner {

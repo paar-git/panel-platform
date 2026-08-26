@@ -18,6 +18,7 @@ project-host-platform = { version = "0.1.0", path = "../platform" }
 serde = "1.0.229"
 serde_json = "1.0.151"
 thiserror = "2.0.19"
+tokio = { version = "1.53.1", features = ["time"] }
 tracing = "0.1.44"
 
 [lints]
