@@ -189,7 +189,7 @@ export default function NewProjectWizard({
                 <span
                   className={`grid h-6 w-6 shrink-0 place-items-center rounded-full text-[11px] font-semibold ${
                     current
-                      ? 'bg-accent text-white'
+                      ? 'bg-accent text-canvas'
                       : done
                         ? 'bg-ok-soft text-ok'
                         : 'border border-edge text-faint'

@@ -27,7 +27,7 @@ import {
   startProject,
   stopProject,
   type ActivityEntry,
-  type ContainerEvent,
+  type ProjectEvent,
   type DeploymentSummary,
   type ProjectDetail as Detail,
   type ProjectSummary,
@@ -95,7 +95,7 @@ export default function ProjectDetail({
   const [detail, setDetail] = useState<Detail | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
   const [deployments, setDeployments] = useState<DeploymentSummary[] | null>(null);
-  const [events, setEvents] = useState<ContainerEvent[] | null>(null);
+  const [events, setEvents] = useState<ProjectEvent[] | null>(null);
   const [activity, setActivity] = useState<ActivityEntry[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [confirmKill, setConfirmKill] = useState(false);
@@ -152,22 +152,22 @@ export default function ProjectDetail({
   const uptime = uptimeSeconds(detail?.startedAt ?? null);
 
   return (
-    <div className="mx-auto w-full max-w-[1200px] px-8 py-6">
+    <div className="w-full max-w-[940px]">
       <button
         type="button"
         onClick={onBack}
-        className="mb-4 inline-flex items-center gap-1.5 text-[13px] text-muted hover:text-ink"
+        className="mb-4 inline-flex items-center gap-1 text-[12.5px] text-faint hover:text-ink"
       >
-        <Icon name="chevron-left" size={14} />
+        <Icon name="chevron-left" size={13} />
         Projects
       </button>
 
-      <header className="mb-5 flex flex-wrap items-start justify-between gap-4">
-        <div className="flex min-w-0 items-start gap-3">
-          <ProjectMark projectId={project.id} runtime={project.projectType} size={40} />
+      <header className="mb-[18px] flex flex-wrap items-center justify-between gap-4">
+        <div className="flex min-w-0 items-center gap-3.5">
+          <ProjectMark projectId={project.id} runtime={project.projectType} size={44} />
           <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <h1 className="truncate text-[20px] leading-tight font-semibold tracking-tight">
+            <div className="flex flex-wrap items-center gap-2.5">
+              <h1 className="truncate text-[26px] leading-tight font-semibold tracking-[-0.025em]">
                 {project.displayName}
               </h1>
               <Badge tone={look.tone} dot>
@@ -179,9 +179,10 @@ export default function ProjectDetail({
                 </Badge>
               )}
             </div>
-            <p className="mt-1 truncate text-[13px] text-muted">
-              {project.description || project.slug}
-            </p>
+            <p className="mt-0.5 truncate font-mono text-[12px] text-faint">{project.slug}</p>
+            {project.description && (
+              <p className="mt-0.5 truncate text-[12.5px] text-muted">{project.description}</p>
+            )}
             {developerMode && (
               <p className="mt-1 font-mono text-[11px] text-faint select-text">
                 {project.id} · {project.projectType}
@@ -389,10 +390,7 @@ function Overview({
               <DataRow label="Runtime" value={runtimeLabel(detail.runtime.runtime)} />
               <DataRow label="Version" value={detail.runtime.runtimeVersion || '—'} />
               <DataRow label="Package manager" value={detail.runtime.packageManager || '—'} />
-              <DataRow label="Install" value={detail.runtime.installCommand ?? '—'} mono />
-              <DataRow label="Build" value={detail.runtime.buildCommand ?? '—'} mono />
-              <DataRow label="Start" value={detail.runtime.startCommand || '—'} mono />
-              <DataRow label="Working directory" value={detail.runtime.workingDir || '—'} mono />
+              <DataRow label="Entry file" value={detail.runtime.entryFile ?? '—'} mono />
             </>
           ) : (
             <DataRow label="Runtime" value="not recorded" />
@@ -533,7 +531,7 @@ function Deployments({ deployments }: { deployments: DeploymentSummary[] | null 
 
 // ------------------------------------------------------------------- history
 
-function History({ events, detail }: { events: ContainerEvent[] | null; detail: Detail }) {
+function History({ events, detail }: { events: ProjectEvent[] | null; detail: Detail }) {
   return (
     <div className="grid gap-4 lg:grid-cols-[1fr_280px]">
       <Card className="overflow-hidden">
@@ -606,14 +604,14 @@ function Networking({ detail }: { detail: Detail }) {
           <ul>
             {detail.ports.map((port) => (
               <li
-                key={`${port.containerPort}-${port.protocol}`}
+                key={`${port.port}-${port.protocol}`}
                 className="flex items-center gap-3 border-b border-edge/60 px-4 py-2.5 last:border-b-0"
               >
                 <span className="tabular font-mono text-[13px] text-ink">
                   {port.hostPort ?? '—'}
                 </span>
                 <Icon name="arrow-right" size={14} className="text-faint" />
-                <span className="tabular font-mono text-[13px] text-ink">{port.containerPort}</span>
+                <span className="tabular font-mono text-[13px] text-ink">{port.port}</span>
                 <span className="flex-1 text-[12px] text-muted uppercase">{port.protocol}</span>
                 {port.hostPort !== null && (
                   <span className="font-mono text-[12px] text-accent select-text">
@@ -627,18 +625,13 @@ function Networking({ detail }: { detail: Detail }) {
       </Card>
 
       <Card>
-        <CardHeader title="Network" />
+        <CardHeader
+          title="Network"
+          subtitle="A project is given a port from the host pool the first time it starts."
+        />
         <div className="py-1">
           <DataRow label="Mode" value={detail.networkMode.toLowerCase()} />
-          <DataRow label="Container" value={detail.containerName ?? '—'} mono />
-          <DataRow label="Image" value={detail.imageTag ?? '—'} mono />
-          <DataRow
-            label="Health check"
-            value={detail.runtime?.healthCheckType.toLowerCase() ?? '—'}
-          />
-          {detail.runtime?.healthCheckTarget && (
-            <DataRow label="Health target" value={detail.runtime.healthCheckTarget} mono />
-          )}
+          <DataRow label="Health" value={healthLook(detail.health).label} />
         </div>
       </Card>
     </div>

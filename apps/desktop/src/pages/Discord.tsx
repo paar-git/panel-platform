@@ -507,7 +507,7 @@ function ProjectPicker({
                 <span
                   aria-hidden
                   className={`grid h-4 w-4 shrink-0 place-items-center rounded-[4px] border ${
-                    ticked ? 'border-accent bg-accent text-white' : 'border-edge-strong'
+                    ticked ? 'border-accent bg-accent text-canvas' : 'border-edge-strong'
                   }`}
                 >
                   {ticked && <Icon name="check" size={11} />}

@@ -473,7 +473,7 @@ export function EmptyState({
 }) {
   return (
     <div className="flex flex-col items-center px-6 py-12 text-center">
-      <span className="mb-3 grid h-10 w-10 place-items-center rounded-[7px] border border-edge bg-raised text-muted">
+      <span className="mb-3 grid h-10 w-10 place-items-center rounded-[10px] border border-edge bg-raised text-muted">
         <Icon name={icon} size={22} />
       </span>
       <h3 className="text-[15px] font-medium">{title}</h3>
@@ -515,7 +515,7 @@ export function Banner({
 
   return (
     <div
-      className={`flex flex-wrap items-center gap-x-3 gap-y-2 rounded-[7px] border px-3 py-2.5 ${edge}`}
+      className={`flex flex-wrap items-center gap-x-3 gap-y-2 rounded-[10px] border px-3 py-2.5 ${edge}`}
     >
       <span className={`h-2 w-2 shrink-0 rounded-full ${TONES[tone].dot}`} aria-hidden />
       <div className="min-w-[200px] flex-1">

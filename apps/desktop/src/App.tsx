@@ -223,8 +223,8 @@ export default function App() {
     // remounted this in development.
   }, []);
 
-  // Announce a project that changed state on its own — a container that fell
-  // over, or one Docker restarted. Only transitions are reported, never the
+  // Announce a project that changed state on its own — one that fell over, or
+  // one the supervisor restarted. Only transitions are reported, never the
   // first load, or opening the window would toast once per running project.
   const lastStatuses = useRef<Map<string, string> | null>(null);
   useEffect(() => {

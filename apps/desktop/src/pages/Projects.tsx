@@ -319,7 +319,7 @@ function ProjectCard({
   const menu = useMenu();
 
   return (
-    <div className="flex h-[150px] flex-col rounded-[7px] border border-edge bg-surface transition-colors duration-100 hover:border-edge-strong">
+    <div className="flex h-[150px] flex-col rounded-[12px] border border-edge bg-surface transition-colors duration-100 hover:border-edge-strong">
       {/* Identity. The mark and the name are the row a person scans; the
           runtime and the state are the line underneath it. */}
       <div className="flex items-start gap-2.5 p-3">

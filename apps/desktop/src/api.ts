@@ -247,9 +247,10 @@ export const HOST_MODE_TRADE =
   'network and no resource limits, and it stops when Panel Platform quits.';
 
 /**
- * How many host projects would stop if the window were closed now.
+ * How many projects would stop if the window were closed now.
  *
- * Docker projects are not counted: they outlive the application.
+ * Every one of them: a project is a set of children of this process, so
+ * nothing outlives the application.
  */
 export async function hostProjectsRunning(): Promise<number> {
   return invoke<number>('host_projects_running');
@@ -801,9 +802,9 @@ export async function revealProjectPath(projectId: string, path: string): Promis
 /**
  * What this machine is doing, measured.
  *
- * Host-wide rather than per project: reading a container's own CPU and memory
- * means Docker's stats stream, which the manager does not do yet. These numbers
- * are real, which is why they are worth showing at all.
+ * Host-wide. Per-project figures are reported separately by `machineLoad`,
+ * which reads each project's process tree. These numbers are real, which is
+ * why they are worth showing at all.
  */
 export interface SystemMetrics {
   cpuPercent: number;
@@ -838,21 +839,23 @@ export async function recentActivity(limit: number, projectId?: string): Promise
 
 // ----------------------------------------------------------- project details
 
+/**
+ * The project's toolchain.
+ *
+ * Not how it is started: a project has one toolchain and any number of
+ * processes, so the commands, the working directory and the health check
+ * belong to a `ProcessSummary` rather than here.
+ */
 export interface RuntimeDetail {
   runtime: string;
   runtimeVersion: string;
   packageManager: string;
-  installCommand: string | null;
-  buildCommand: string | null;
-  startCommand: string;
-  workingDir: string;
   entryFile: string | null;
-  healthCheckType: string;
-  healthCheckTarget: string | null;
 }
 
 export interface PortMapping {
-  containerPort: number;
+  /** The port the project's own process binds. */
+  port: number;
   hostPort: number | null;
   protocol: string;
 }
@@ -889,8 +892,6 @@ export interface ProjectDetail {
   sourceUrl: string | null;
   sourceRef: string | null;
   sourceCommit: string | null;
-  imageTag: string | null;
-  containerName: string | null;
   memoryLimitMb: number;
   cpuLimitCores: number;
   storageLimitMb: number;
@@ -931,7 +932,7 @@ export async function projectDeployments(
 }
 
 /** Starts, stops and crashes — the restart history. */
-export interface ContainerEvent {
+export interface ProjectEvent {
   id: string;
   eventType: string;
   exitCode: number | null;
@@ -939,8 +940,8 @@ export interface ContainerEvent {
   occurredAt: string;
 }
 
-export async function projectEvents(projectId: string, limit: number): Promise<ContainerEvent[]> {
-  return toCamel<ContainerEvent[]>(await invoke('project_events', { projectId, limit }));
+export async function projectEvents(projectId: string, limit: number): Promise<ProjectEvent[]> {
+  return toCamel<ProjectEvent[]>(await invoke('project_events', { projectId, limit }));
 }
 
 export interface AppSettings {

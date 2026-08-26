@@ -144,7 +144,7 @@ export default function CommandPalette({
                     onClick={() => accept(at)}
                     title={match.item.reason}
                     className={`flex w-full items-center gap-2 px-3 py-1 text-left text-[13px] ${
-                      at === index ? 'bg-accent text-white' : 'text-vs-text'
+                      at === index ? 'bg-accent text-canvas' : 'text-vs-text'
                     } disabled:cursor-default disabled:opacity-40`}
                   >
                     <span className={at === index ? 'text-white/70' : 'text-vs-dim'}>
@@ -166,7 +166,7 @@ export default function CommandPalette({
                     onMouseMove={() => setIndex(at)}
                     onClick={() => accept(at)}
                     className={`flex w-full items-center gap-2 px-3 py-1 text-left text-[13px] ${
-                      at === index ? 'bg-accent text-white' : 'text-vs-text'
+                      at === index ? 'bg-accent text-canvas' : 'text-vs-text'
                     }`}
                   >
                     <span style={{ color: fileIconColor(tabLabel(match.item)) }}>

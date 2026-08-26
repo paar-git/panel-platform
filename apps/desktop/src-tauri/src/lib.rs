@@ -2110,7 +2110,7 @@ async fn project_deployments(
 
 /// Starts, stops and crashes — the restart history the overview shows.
 #[derive(Debug, Serialize)]
-pub struct ContainerEvent {
+pub struct ProjectEvent {
     pub id: String,
     pub event_type: String,
     pub exit_code: Option<i64>,
@@ -2123,12 +2123,12 @@ async fn project_events(
     state: tauri::State<'_, AppState>,
     project_id: String,
     limit: u32,
-) -> CommandResult<Vec<ContainerEvent>> {
+) -> CommandResult<Vec<ProjectEvent>> {
     let app: &AppState = &state;
     let records = projects::list_container_events(app.database(), &project_id, limit).await?;
     Ok(records
         .into_iter()
-        .map(|record| ContainerEvent {
+        .map(|record| ProjectEvent {
             id: record.id,
             event_type: record.event_type,
             exit_code: record.exit_code,
