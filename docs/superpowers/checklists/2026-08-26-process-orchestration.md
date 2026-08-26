@@ -9,8 +9,13 @@ executed is written down rather than implied.
 
 The orchestration state machine is pure, so ordering, the crash rule, status
 aggregation, reverse-order stop and prepare deduplication are all covered by
-unit tests. **Nothing below is.** Every scenario here exercises a real process
-on a real machine, which no test in this repository does.
+unit tests.
+
+Since then `crates/app-core/tests/real_processes.rs` has been added, which does
+spawn real processes: scenarios 1, 2, 3 (partly), 8, 9 (partly), and the
+install/build ordering are now executed by `cargo test` on any machine with
+Node. Each item below says which parts a test now covers and which still need a
+person. **Scenarios 4, 5, 6, 7, 10, 11 and 12 remain entirely unrun.**
 
 Record the result beside each item. An unrun scenario stays marked unrun — this
 repository's convention is to say so out loud rather than leave it to be
@@ -24,7 +29,12 @@ assumed.
 
 ---
 
-## 1. A single Node project ☐
+## 1. A single Node project ✅ (automated) / ☐ (through the window)
+
+> `one_process_starts_and_then_stops` covers spawn, the observed row, the pid
+> being alive by the operating system's own reckoning, and the stop. What it
+> does not cover is the window: the Run button, the process list, the port
+> opening in a browser.
 
 **Setup.** Any directory with a `package.json` whose `start` script runs a
 server that binds `process.env.PORT`.
@@ -37,7 +47,11 @@ server that binds `process.env.PORT`.
 **Expect.** One process named `main` reaching `RUNNING`. The page loads. After
 Stop the process list shows `STOPPED` and the port is free.
 
-## 2. Two processes, in order ☐
+## 2. Two processes, in order ✅ (automated, without a health check) / ☐ (health-gated)
+
+> `processes_start_in_order` proves the second process starts after the first,
+> gated on settling. **The health-check gate is still unrun** — no test here
+> configures one, so "web waits for api to answer /health" remains a claim.
 
 **Setup.** A project with two process rows: `api` (order 0, a server on its
 `PORT`) and `web` (order 1, a Vite dev server). Give `api` an HTTP health check
@@ -109,7 +123,10 @@ dies. The row ends `STOPPED`, not `STOPPING` forever.
 > run on this machine. **The Unix branch has never run** — there is no Linux or
 > macOS here.
 
-## 8. Three projects at once ☐
+## 8. Three projects at once ✅ (automated) / ☐ (through the window)
+
+> `three_projects_run_side_by_side` starts three, asserts the registry counts
+> three, stops one and asserts the other two survive.
 
 1. Run three different projects.
 

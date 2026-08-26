@@ -165,7 +165,18 @@ CREATE TABLE project_processes (
 
     UNIQUE (project_id, name),
     UNIQUE (project_id, start_order),
-    CHECK (name GLOB '[a-z0-9][a-z0-9-]*'),
+    -- Lower-case letters, digits and dashes, starting with a letter or digit,
+    -- and at least one character long.
+    --
+    -- Written as two conditions because GLOB is not a regular expression: its
+    -- `*` is a standalone wildcard, not a quantifier, so the
+    -- `'[a-z0-9][a-z0-9-]*'` pattern used for `projects.slug` actually means
+    -- "two characters from the set, then anything at all". That refuses a
+    -- process named `a` and accepts one named `ab CDE!`. The first condition
+    -- here anchors the opening character; the second refuses any character
+    -- outside the set anywhere in the name.
+    CHECK (name GLOB '[a-z0-9]*'),
+    CHECK (name NOT GLOB '*[^a-z0-9-]*'),
     CHECK (start_order >= 0)
 );
 

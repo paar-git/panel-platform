@@ -240,10 +240,25 @@ projects running at once.
 
 The checklist is `docs/superpowers/checklists/2026-08-26-process-orchestration.md`.
 
-**As implemented, none of its twelve scenarios has been run.** Every claim in
-this document about what happens when a process actually starts, crashes,
-refuses to stop, or takes its siblings down with it is therefore unverified on
-any machine. What _has_ run: the whole Rust suite and the window's, both clean,
+**The choice was revisited once the code existed**, because it left the entire
+execution path unexecuted, which is the condition this repository's recurring
+defect grows in. `crates/app-core/tests/real_processes.rs` now spawns real
+processes: start, ordered start, stop, reverse-order teardown, immediate death,
+sibling teardown after a failure, three projects at once, install-then-build
+ordering, a failing install, and the allocated port reaching the process. It
+skips with a printed note where Node is absent.
+
+Writing it found a defect the unit tests could not: `project_processes.name`
+carried `GLOB '[a-z0-9][a-z0-9-]*'`, copied from `projects.slug`. SQLite GLOB
+has no quantifier — its `*` is a standalone wildcard — so the pattern demanded
+two leading characters and then permitted anything, refusing a process named
+`a` and accepting one named `ab CDE!`. It is now two conditions that say what
+was meant.
+
+**Still unrun on any machine:** the health-check gate, a missing runtime, a
+crash loop and its backoff, the `STABLE_RUN` reset, a stuck process and its
+escalation, restarting one process of several, an older database upgrading and
+then starting, and quitting the application. What _has_ run: the whole Rust suite and the window's, both clean,
 including the state machine's rules, the prepare deduplication, and migration
 0009 against a database seeded with rows in the pre-0009 shape.
 

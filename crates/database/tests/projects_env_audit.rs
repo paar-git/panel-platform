@@ -1225,3 +1225,56 @@ async fn deleting_a_project_takes_its_processes_with_it() {
         .expect("list");
     assert!(orphans.is_empty(), "the processes outlived their project");
 }
+
+/// The process-name constraint, at its edges.
+///
+/// The pattern this replaced was copied from `projects.slug` and was wrong in
+/// both directions: SQLite GLOB has no quantifier, so `[a-z0-9][a-z0-9-]*`
+/// demands two leading characters and then permits anything. A process named
+/// `a` was refused by the database, and one named `ab CDE!` was accepted.
+#[tokio::test]
+async fn a_process_name_may_be_one_character_but_not_any_character() {
+    let database = db().await;
+
+    for name in ["a", "1", "api", "web-2", "worker-queue-3"] {
+        let project = projects::create_project(&database, &new_project(&format!("ok-{name}")))
+            .await
+            .expect("create");
+        projects::replace_processes(
+            &database,
+            &project.id,
+            &[NewProcess::simple(name, 0, "node index.js")],
+        )
+        .await
+        .unwrap_or_else(|error| panic!("`{name}` should be a legal process name: {error}"));
+    }
+
+    for name in [
+        "ab CDE!",
+        "Api",
+        "web_2",
+        "-leading",
+        "has space",
+        "semi;colon",
+    ] {
+        let project = projects::create_project(&database, &new_project("refused"))
+            .await
+            .expect("create");
+        let refused = projects::replace_processes(
+            &database,
+            &project.id,
+            &[NewProcess::simple(name, 0, "node index.js")],
+        )
+        .await;
+        assert!(
+            refused.is_err(),
+            "`{name}` should not be a legal process name"
+        );
+        projects::begin_delete(&database, &project.id)
+            .await
+            .expect("begin");
+        projects::finish_delete(&database, &project.id)
+            .await
+            .expect("finish");
+    }
+}
