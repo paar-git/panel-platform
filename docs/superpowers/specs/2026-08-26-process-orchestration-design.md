@@ -238,6 +238,15 @@ exercise on a real machine: an actual multi-process start, a real port conflict,
 a real missing runtime, a real crash loop, a real stuck process, and three
 projects running at once.
 
+The checklist is `docs/superpowers/checklists/2026-08-26-process-orchestration.md`.
+
+**As implemented, none of its twelve scenarios has been run.** Every claim in
+this document about what happens when a process actually starts, crashes,
+refuses to stop, or takes its siblings down with it is therefore unverified on
+any machine. What *has* run: the whole Rust suite and the window's, both clean,
+including the state machine's rules, the prepare deduplication, and migration
+0009 against a database seeded with rows in the pre-0009 shape.
+
 `cargo clippy --workspace --all-targets` and `cargo test --workspace` are clean
 and stay clean; the window has `npx tsc --noEmit`,
 `npx eslint src --max-warnings 0` and `npx vitest run`.
