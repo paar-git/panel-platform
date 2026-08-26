@@ -283,6 +283,18 @@ CREATE TABLE others (
 
         assert_eq!(name, "main");
         assert_eq!(order, 0);
+
+        let id: String = sqlx::query_scalar(
+            "SELECT id FROM project_processes WHERE project_id = 'p1'",
+        )
+        .fetch_one(&mut *connection)
+        .await
+        .expect("id");
+        assert!(
+            project_host_api_types::ProcessId::parse(&id).is_ok(),
+            "a row this migration made must be indistinguishable from one the \
+             application made; got {id}"
+        );
         assert_eq!(command, "npm start", "the start command became the process");
         assert_eq!(
             working_dir, ".",

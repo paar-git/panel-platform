@@ -14,7 +14,7 @@
 
 use project_host_api_types::ids::ProjectId;
 use project_host_api_types::ProjectType;
-use project_host_database::projects::{self, NewPort, NewProject, RuntimeSpec};
+use project_host_database::projects::{self, NewProcess, NewPort, NewProject, RuntimeSpec};
 use project_host_database::source_credentials::{
     forget_source_credential, has_source_credential, load_source_credential,
     save_source_credential, SourceCredentialRecord,
@@ -34,19 +34,9 @@ fn runtime() -> RuntimeSpec {
         runtime: "NODEJS".to_string(),
         runtime_version: "22".to_string(),
         package_manager: "NPM".to_string(),
-        install_command: Some("npm ci --omit=dev".to_string()),
-        build_command: None,
-        start_command: "node index.js".to_string(),
-        working_dir: "/app".to_string(),
         entry_file: Some("index.js".to_string()),
         publish_dir: None,
         template_id: "nodejs".to_string(),
-        health_check_type: "NONE".to_string(),
-        health_check_target: None,
-        health_interval_s: 30,
-        health_timeout_s: 5,
-        health_retries: 3,
-        health_start_period_s: 20,
     }
 }
 
@@ -66,9 +56,6 @@ async fn a_cloned_project(database: &Database, slug: &str) -> String {
             source_url: Some("https://github.com/owner/private-repo.git".to_string()),
             source_ref: Some("main".to_string()),
             source_commit: Some("0f5c1d0ab1c2d3e4f5061728394a5b6c7d8e9f01".to_string()),
-            container_name: format!("ph_{slug}"),
-            network_name: format!("ph_net_{slug}"),
-            volume_name: format!("ph_vol_{slug}"),
             autostart: false,
             restart_policy: "UNLESS_STOPPED".to_string(),
             network_mode: "INTERNET".to_string(),
@@ -77,6 +64,7 @@ async fn a_cloned_project(database: &Database, slug: &str) -> String {
             storage_limit_mb: 2048,
             process_limit: 128,
             runtime: runtime(),
+            processes: vec![NewProcess::simple("main", 0, "node index.js")],
             ports: Vec::<NewPort>::new(),
         },
     )

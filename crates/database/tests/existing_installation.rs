@@ -133,13 +133,28 @@ async fn an_older_installation_upgrades_without_losing_anything() {
         .expect("the project the user made before the upgrade is gone");
     assert_eq!(record.display_name, "Made before the upgrade");
 
-    // `project_runtimes` is rebuilt by 0004 and `projects` by 0003. Both rebuilds
-    // are copy-drop-rename, which is where rows get lost.
+    // `project_runtimes` is rebuilt by 0004 and again by 0009, and `projects`
+    // by 0003 and 0009. Every one is copy-drop-rename, which is where rows get
+    // lost.
     let runtime = project_host_database::projects::find_runtime(&database, &project)
         .await
         .expect("query")
         .expect("the runtime row did not survive the rebuild");
-    assert_eq!(runtime.start_command, "node index.js");
+    assert_eq!(runtime.runtime, "NODEJS");
+
+    // 0009 moved the start command out of the runtime and into a process. An
+    // installation made before that migration must still know what to run, or
+    // the upgrade silently turns a working project into one that cannot start.
+    let processes = project_host_database::projects::list_processes(&database, &project)
+        .await
+        .expect("query");
+    assert_eq!(processes.len(), 1, "the upgrade should make exactly one process");
+    assert_eq!(processes[0].name, "main");
+    assert_eq!(processes[0].command, "node index.js");
+    assert_eq!(
+        processes[0].working_dir, ".",
+        "`/app` was a container path and does not exist on this machine"
+    );
 
     let variables = project_host_database::environment::list_variables(&database, &project)
         .await

@@ -181,7 +181,9 @@ INSERT INTO project_processes (
     health_interval_s, health_timeout_s, health_retries, health_start_period_s
 )
 SELECT
-    lower(hex(randomblob(16))), project_id, 'main', 0, start_command, '.',
+    -- The same shape `ProcessId::generate` produces, so a row this migration
+    -- created is indistinguishable from one the application did.
+    'prc_' || lower(hex(randomblob(16))), project_id, 'main', 0, start_command, '.',
     install_command, build_command,
     health_check_type, health_check_target,
     health_interval_s, health_timeout_s, health_retries, health_start_period_s

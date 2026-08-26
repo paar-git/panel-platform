@@ -211,11 +211,6 @@ async fn rust_enums_match_the_check_constraints() {
             .collect::<Vec<_>>(),
     );
     assert_parity(
-        "projects",
-        "run_mode",
-        &RunMode::ALL.iter().map(|v| v.as_str()).collect::<Vec<_>>(),
-    );
-    assert_parity(
         "project_runtimes",
         "runtime",
         &Runtime::ALL.iter().map(|v| v.as_str()).collect::<Vec<_>>(),
@@ -228,8 +223,9 @@ async fn rust_enums_match_the_check_constraints() {
             .map(|v| v.as_str())
             .collect::<Vec<_>>(),
     );
+    // A health check belongs to a process, not to the project's toolchain.
     assert_parity(
-        "project_runtimes",
+        "project_processes",
         "health_check_type",
         &HealthCheckType::ALL
             .iter()
@@ -445,7 +441,7 @@ async fn two_projects_cannot_claim_the_same_host_port() {
         let pool = database.pool().clone();
         async move {
             sqlx::query(
-                "INSERT INTO project_ports (id, project_id, container_port, host_port)
+                "INSERT INTO project_ports (id, project_id, port, host_port)
                  VALUES (?, ?, 3000, 20001)",
             )
             .bind(PortId::generate().to_string())
@@ -470,7 +466,7 @@ async fn privileged_ports_cannot_be_stored() {
 
     for port in [80, 443, 1023] {
         let result = sqlx::query(
-            "INSERT INTO project_ports (id, project_id, container_port, host_port)
+            "INSERT INTO project_ports (id, project_id, port, host_port)
              VALUES (?, ?, 3000, ?)",
         )
         .bind(PortId::generate().to_string())
@@ -1132,8 +1128,8 @@ async fn try_runtime(
 ) -> std::result::Result<(), sqlx::Error> {
     sqlx::query(
         "INSERT INTO project_runtimes (project_id, runtime, runtime_version, package_manager,
-                                       start_command, template_id)
-         VALUES (?, ?, '1', ?, 'run', 'tpl')
+                                       template_id)
+         VALUES (?, ?, '1', ?, 'tpl')
          ON CONFLICT(project_id) DO UPDATE SET
              runtime = excluded.runtime,
              package_manager = excluded.package_manager",

@@ -15,7 +15,7 @@
 
 use project_host_api_types::ProjectType;
 use project_host_database::discord::{self, BotCredentials, NewChannels, NewGuildLink};
-use project_host_database::projects::{self, NewPort, NewProject, RuntimeSpec};
+use project_host_database::projects::{self, NewProcess, NewPort, NewProject, RuntimeSpec};
 use project_host_database::{schema_parity, Database, DISCORD_MIGRATION};
 use project_host_discord::{ChannelKind, EventKind, Permission};
 
@@ -28,19 +28,9 @@ fn runtime() -> RuntimeSpec {
         runtime: "NODEJS".to_string(),
         runtime_version: "22".to_string(),
         package_manager: "PNPM".to_string(),
-        install_command: None,
-        build_command: None,
-        start_command: "node index.js".to_string(),
-        working_dir: "/app".to_string(),
         entry_file: Some("index.js".to_string()),
         publish_dir: None,
         template_id: "nodejs".to_string(),
-        health_check_type: "NONE".to_string(),
-        health_check_target: None,
-        health_interval_s: 30,
-        health_timeout_s: 5,
-        health_retries: 3,
-        health_start_period_s: 20,
     }
 }
 
@@ -65,9 +55,6 @@ async fn a_project(database: &Database, slug: &str) -> String {
             source_url: None,
             source_ref: None,
             source_commit: None,
-            container_name: format!("projecthost-{slug}"),
-            network_name: format!("projecthost-net-{slug}"),
-            volume_name: format!("projecthost-data-{slug}"),
             autostart: true,
             restart_policy: "UNLESS_STOPPED".to_string(),
             network_mode: "INTERNET".to_string(),
@@ -76,12 +63,14 @@ async fn a_project(database: &Database, slug: &str) -> String {
             storage_limit_mb: 2048,
             process_limit: 128,
             runtime: runtime(),
+            processes: vec![NewProcess::simple("main", 0, "node index.js")],
             ports: vec![NewPort {
-                container_port: 3000,
+                port: 3000,
                 host_port: Some(host_port_for(slug)),
                 protocol: "tcp".to_string(),
                 bind_address: "127.0.0.1".to_string(),
                 is_primary: true,
+                process_id: None,
             }],
         },
     )

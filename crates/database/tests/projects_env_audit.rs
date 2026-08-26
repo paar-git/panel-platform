@@ -14,11 +14,11 @@
 
 use project_host_api_types::{
     ContainerEventType, DeploymentStatus, DeploymentType, DesiredState, HealthState, ProjectStatus,
-    ProjectType, RunMode,
+    ProjectType,
 };
 use project_host_database::audit::{self, AuditEvent, AuditResult};
 use project_host_database::environment::{self, StoredValue};
-use project_host_database::projects::{self, NewPort, NewProject, ProjectUpdate, RuntimeSpec};
+use project_host_database::projects::{self, NewProcess, NewPort, NewProject, ProjectUpdate, RuntimeSpec};
 use project_host_database::{queries, Database};
 
 async fn db() -> Database {
@@ -30,19 +30,9 @@ fn runtime() -> RuntimeSpec {
         runtime: "NODEJS".to_string(),
         runtime_version: "22".to_string(),
         package_manager: "PNPM".to_string(),
-        install_command: Some("pnpm install --frozen-lockfile".to_string()),
-        build_command: None,
-        start_command: "node index.js".to_string(),
-        working_dir: "/app".to_string(),
         entry_file: Some("index.js".to_string()),
         publish_dir: None,
         template_id: "nodejs".to_string(),
-        health_check_type: "NONE".to_string(),
-        health_check_target: None,
-        health_interval_s: 30,
-        health_timeout_s: 5,
-        health_retries: 3,
-        health_start_period_s: 20,
     }
 }
 
@@ -65,9 +55,6 @@ fn new_project(slug: &str) -> NewProject {
         source_url: None,
         source_ref: None,
         source_commit: None,
-        container_name: format!("projecthost-{slug}"),
-        network_name: format!("projecthost-net-{slug}"),
-        volume_name: format!("projecthost-data-{slug}"),
         autostart: true,
         restart_policy: "UNLESS_STOPPED".to_string(),
         network_mode: "INTERNET".to_string(),
@@ -76,8 +63,9 @@ fn new_project(slug: &str) -> NewProject {
         storage_limit_mb: 2048,
         process_limit: 128,
         runtime: runtime(),
+        processes: vec![NewProcess::simple("main", 0, "node index.js")],
         ports: vec![NewPort {
-            container_port: 3000,
+            port: 3000,
             // Derived from the slug so two fixtures in one database do not
             // collide on the `UNIQUE (host_port, protocol, bind_address)`
             // constraint — which is itself under test elsewhere in this file.
@@ -85,75 +73,12 @@ fn new_project(slug: &str) -> NewProject {
             protocol: "tcp".to_string(),
             bind_address: "127.0.0.1".to_string(),
             is_primary: true,
+                process_id: None,
         }],
     }
 }
 
 // ---------------------------------------------------------------- projects
-
-/// A new project runs as a local process. Nothing a user can press produces
-/// anything else, and the column default is what makes that true for every
-/// caller rather than for whichever ones remembered to say so.
-///
-/// The `DOCKER` value is still stored and read back, because `docker-manager`
-/// still compiles and a hand-set row has to remain readable — it is simply no
-/// longer what anybody gets by default. Migration 0008 moved the rows that had
-/// it.
-#[tokio::test]
-async fn a_project_runs_as_a_local_process_unless_it_is_told_otherwise() {
-    let database = db().await;
-    let project = projects::create_project(&database, &new_project("bot"))
-        .await
-        .expect("create");
-
-    assert_eq!(project.run_mode, "HOST");
-
-    projects::set_run_mode(&database, &project.id, RunMode::Host)
-        .await
-        .expect("set host");
-    let reloaded = projects::find_project(&database, &project.id)
-        .await
-        .expect("find")
-        .expect("row");
-    assert_eq!(reloaded.run_mode, "HOST");
-
-    projects::set_run_mode(&database, &project.id, RunMode::Docker)
-        .await
-        .expect("set docker");
-    let reloaded = projects::find_project(&database, &project.id)
-        .await
-        .expect("find")
-        .expect("row");
-    assert_eq!(reloaded.run_mode, "DOCKER");
-}
-
-/// The `CHECK` is the real guard. A third substrate arriving in the enum
-/// without a migration must fail here rather than when someone saves it.
-#[tokio::test]
-async fn a_run_mode_the_schema_does_not_know_is_refused() {
-    let database = db().await;
-    let project = projects::create_project(&database, &new_project("bot"))
-        .await
-        .expect("create");
-
-    let refused = sqlx::query("UPDATE projects SET run_mode = ? WHERE id = ?")
-        .bind("PODMAN")
-        .bind(&project.id)
-        .execute(database.pool())
-        .await;
-
-    assert!(refused.is_err(), "the CHECK constraint let PODMAN through");
-}
-
-#[tokio::test]
-async fn setting_the_run_mode_of_a_project_that_is_gone_is_an_error() {
-    let database = db().await;
-
-    assert!(matches!(
-        projects::set_run_mode(&database, "no-such-project", RunMode::Host).await,
-        Err(project_host_database::DatabaseError::NotFound { entity: "project" })
-    ));
-}
 
 #[tokio::test]
 async fn a_created_project_has_its_runtime_and_ports() {
@@ -171,7 +96,13 @@ async fn a_created_project_has_its_runtime_and_ports() {
         .await
         .expect("runtime")
         .expect("present");
-    assert_eq!(runtime.start_command, "node index.js");
+    assert_eq!(runtime.runtime, "NODEJS");
+
+    let processes = projects::list_processes(&database, &project.id)
+        .await
+        .expect("processes");
+    assert_eq!(processes.len(), 1);
+    assert_eq!(processes[0].command, "node index.js");
 
     let ports = projects::list_ports(&database, &project.id)
         .await
@@ -337,11 +268,10 @@ async fn an_update_cannot_change_a_projects_identity() {
 
     assert_eq!(updated.display_name, "Renamed");
     assert_eq!(updated.memory_limit_mb, 1024);
-    // The names Docker and the filesystem know it by are unchanged, and
-    // `ProjectUpdate` has no field that could change them.
+    // The names the filesystem knows it by are unchanged, and `ProjectUpdate`
+    // has no field that could change them.
     assert_eq!(updated.slug, project.slug);
     assert_eq!(updated.directory, project.directory);
-    assert_eq!(updated.container_name, project.container_name);
     assert_eq!(
         updated.description, project.description,
         "untouched fields stay"
@@ -1083,4 +1013,210 @@ async fn every_project_type_is_accepted_by_the_schema() {
             .await
             .unwrap_or_else(|error| panic!("{} was refused: {error}", kind.as_str()));
     }
+}
+
+// ------------------------------------------------------------- processes
+
+/// A project's processes come back in the order they are started, not the
+/// order they were written. The orchestrator relies on this: it starts them by
+/// walking the list, and a list in insert order would start the web server
+/// before the API it talks to.
+#[tokio::test]
+async fn processes_come_back_in_start_order() {
+    let database = db().await;
+    let project = projects::create_project(&database, &new_project("ordered"))
+        .await
+        .expect("create");
+
+    projects::replace_processes(
+        &database,
+        &project.id,
+        &[
+            NewProcess::simple("web", 1, "npm run dev"),
+            NewProcess::simple("api", 0, "npm run api"),
+        ],
+    )
+    .await
+    .expect("replace");
+
+    let names: Vec<String> = projects::list_processes(&database, &project.id)
+        .await
+        .expect("list")
+        .into_iter()
+        .map(|process| process.name)
+        .collect();
+
+    assert_eq!(names, ["api", "web"]);
+}
+
+/// Replacing is replacing. A merge would need a rule for a process that has
+/// vanished from the new set while still running, and there is no good one.
+#[tokio::test]
+async fn replacing_processes_removes_the_previous_set() {
+    let database = db().await;
+    let project = projects::create_project(&database, &new_project("replaced"))
+        .await
+        .expect("create");
+
+    projects::replace_processes(
+        &database,
+        &project.id,
+        &[NewProcess::simple("main", 0, "node a.js")],
+    )
+    .await
+    .expect("first");
+
+    projects::replace_processes(
+        &database,
+        &project.id,
+        &[NewProcess::simple("only", 0, "node b.js")],
+    )
+    .await
+    .expect("second");
+
+    let all = projects::list_processes(&database, &project.id)
+        .await
+        .expect("list");
+    assert_eq!(all.len(), 1);
+    assert_eq!(all[0].name, "only");
+    assert_eq!(all[0].command, "node b.js");
+}
+
+/// Two processes of one project cannot share a name or a position. Both are
+/// database constraints rather than checks in the orchestrator, because the
+/// orchestrator is not the only writer.
+#[tokio::test]
+async fn a_project_cannot_have_two_processes_with_one_name() {
+    let database = db().await;
+    let project = projects::create_project(&database, &new_project("clashing"))
+        .await
+        .expect("create");
+
+    let refused = projects::replace_processes(
+        &database,
+        &project.id,
+        &[
+            NewProcess::simple("api", 0, "node a.js"),
+            NewProcess::simple("api", 1, "node b.js"),
+        ],
+    )
+    .await;
+
+    assert!(refused.is_err(), "two processes named `api` were accepted");
+
+    // The replacement deletes before it inserts, so a refusal partway through
+    // would leave the project with no processes at all — worse than the state
+    // it started in. The transaction is what makes the failure a no-op: the
+    // set the project had before is exactly the set it has after.
+    let survivors = projects::list_processes(&database, &project.id)
+        .await
+        .expect("list");
+    let names: Vec<&str> = survivors
+        .iter()
+        .map(|process| process.name.as_str())
+        .collect();
+    assert_eq!(
+        names,
+        ["main"],
+        "a refused replacement rolled back to something other than the original set"
+    );
+}
+
+/// Status is observed. It is written from what a process did, and read back
+/// exactly as written.
+#[tokio::test]
+async fn a_process_status_is_written_and_read_back() {
+    let database = db().await;
+    let project = projects::create_project(&database, &new_project("statused"))
+        .await
+        .expect("create");
+
+    let made = projects::replace_processes(
+        &database,
+        &project.id,
+        &[NewProcess::simple("main", 0, "node a.js")],
+    )
+    .await
+    .expect("replace");
+
+    projects::set_process_status(
+        &database,
+        &made[0].id,
+        "CRASHED",
+        None,
+        Some(1),
+        Some("exited immediately"),
+    )
+    .await
+    .expect("set");
+
+    let back = projects::list_processes(&database, &project.id)
+        .await
+        .expect("list");
+    assert_eq!(back[0].status, "CRASHED");
+    assert_eq!(back[0].exit_code, Some(1));
+    assert_eq!(back[0].failure_reason.as_deref(), Some("exited immediately"));
+}
+
+/// A crash loop is counted per process, because a project with three processes
+/// has three independent ones.
+#[tokio::test]
+async fn restart_counts_are_per_process() {
+    let database = db().await;
+    let project = projects::create_project(&database, &new_project("counted"))
+        .await
+        .expect("create");
+
+    let made = projects::replace_processes(
+        &database,
+        &project.id,
+        &[
+            NewProcess::simple("api", 0, "node a.js"),
+            NewProcess::simple("web", 1, "node b.js"),
+        ],
+    )
+    .await
+    .expect("replace");
+
+    for _ in 0..3 {
+        projects::increment_process_restart_count(&database, &made[0].id)
+            .await
+            .expect("increment");
+    }
+
+    let back = projects::list_processes(&database, &project.id)
+        .await
+        .expect("list");
+    assert_eq!(back[0].restart_count, 3);
+    assert_eq!(back[1].restart_count, 0, "the sibling did not crash");
+}
+
+/// Deleting a project takes its processes with it, by the same cascade that
+/// takes its ports and environment variables.
+#[tokio::test]
+async fn deleting_a_project_takes_its_processes_with_it() {
+    let database = db().await;
+    let project = projects::create_project(&database, &new_project("doomed"))
+        .await
+        .expect("create");
+
+    projects::replace_processes(
+        &database,
+        &project.id,
+        &[NewProcess::simple("main", 0, "node a.js")],
+    )
+    .await
+    .expect("replace");
+
+    projects::begin_delete(&database, &project.id)
+        .await
+        .expect("begin");
+    projects::finish_delete(&database, &project.id)
+        .await
+        .expect("finish");
+
+    let orphans = projects::list_processes(&database, &project.id)
+        .await
+        .expect("list");
+    assert!(orphans.is_empty(), "the processes outlived their project");
 }
