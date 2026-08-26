@@ -10,6 +10,8 @@ import {
   systemStatus,
   powerStatus,
   machineLoad,
+  recentActivity,
+  type ActivityEntry,
   type MachineLoad,
   type PowerStatus,
   type ProjectSummary,
@@ -20,6 +22,7 @@ import { isRunning, runControls } from './lib/projects';
 import { toRequest, type Draft } from './lib/wizard';
 import Activity from './pages/Activity';
 import NewProjectWizard, { CreatedSummary } from './pages/NewProjectWizard';
+import Overview from './pages/Overview';
 import Projects from './pages/Projects';
 import {
   applyAppearance,
@@ -35,8 +38,8 @@ import AppShell from './shell/AppShell';
 import {
   loadShellLayout,
   saveShellLayout,
+  type SectionId,
   type ShellLayout,
-  type ToolId,
 } from './shell/shellLayout';
 import CommandPalette from './shell/CommandPalette';
 import Icon from './ui/Icon';
@@ -130,6 +133,9 @@ export default function App() {
   /** Drives the status bar's CPU and memory figures. */
   const [load, setLoad] = useState<MachineLoad | null>(null);
   const [projects, setProjects] = useState<ProjectSummary[] | null>(null);
+  // Only for Overview's summary. The Activity section reads its own, with
+  // filters and paging that a five-row summary has no use for.
+  const [activity, setActivity] = useState<ActivityEntry[] | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
 
   const [openProject, setOpenProject] = useState<string | null>(null);
@@ -176,6 +182,11 @@ export default function App() {
       machineLoad()
         .then(setLoad)
         .catch(() => setLoad(null));
+      // Not awaited with the rest: an audit log that will not answer is worth
+      // an empty summary card, never a failed refresh of the project list.
+      recentActivity(6)
+        .then(setActivity)
+        .catch(() => setActivity(null));
       setStatus(nextStatus);
       setProjects(nextProjects);
       setPower(nextPower);
@@ -274,6 +285,10 @@ export default function App() {
 
   const project = openProject === null ? null : projects?.find((item) => item.id === openProject);
 
+  // What the rail and the bar both report. Counted from the rows rather than
+  // from the load sample, which can be a tick behind a start.
+  const runningCount = (projects ?? []).filter((entry) => isRunning(entry.status)).length;
+
   const { gate, guard } = useToolchainGate();
 
   /** Everything the palette can run. Each one is a real action of the shell. */
@@ -287,6 +302,7 @@ export default function App() {
    * disagree about whether a start succeeded.
    */
   const [runBusy, setRunBusy] = useState(false);
+  void runBusy;
   const runAction = useCallback(
     async (item: ProjectSummary, verb: string, action: (id: string) => Promise<unknown>) => {
       setRunBusy(true);
@@ -331,31 +347,27 @@ export default function App() {
       },
       ...(
         [
+          ['overview', 'Overview'],
           ['projects', 'Projects'],
-          ['processes', 'Processes'],
-          ['ports', 'Ports'],
-          ['environment', 'Environment'],
-          ['resources', 'Resources'],
+          ['activity', 'Activity'],
+          ['discord', 'Discord'],
           ['settings', 'Settings'],
-        ] as [ToolId, string][]
+        ] as [SectionId, string][]
       ).map(([id, title]) => ({
         id: `go.${id}`,
         title: `Go to ${title}`,
         category: 'Go',
-        run: () => patchLayout({ tool: id, sidebarVisible: true }),
+        run: () => {
+          setOpenProject(null);
+          patchLayout({ section: id });
+        },
       })),
       {
-        id: 'go.activity',
-        title: 'Go to Activity',
-        category: 'Go',
-        run: () => setActivityOpen(true),
-      },
-      {
         id: 'view.sidebar',
-        title: 'Toggle Sidebar',
+        title: 'Collapse Sidebar',
         category: 'View',
         keybinding: 'Ctrl+B',
-        run: () => patchLayout({ sidebarVisible: !layout.sidebarVisible }),
+        run: () => patchLayout({ sidebarCollapsed: !layout.sidebarCollapsed }),
       },
       {
         id: 'app.refresh',
@@ -418,7 +430,7 @@ export default function App() {
     guard,
     runAction,
     patchLayout,
-    layout.sidebarVisible,
+    layout.sidebarCollapsed,
     patchPreferences,
     preferences.collapsedSidebar,
     project,
@@ -469,7 +481,7 @@ export default function App() {
           onLeave={() => setEditing(false)}
           onOpenSettings={() => {
             setEditing(false);
-            patchLayout({ tool: 'settings', sidebarVisible: true });
+            patchLayout({ section: 'settings' });
           }}
           onOpenUpdates={openUpdates}
         />
@@ -495,34 +507,39 @@ export default function App() {
       <ThemeEffects effect={effect} motion={preferences.appearance.motion} />
       <div className="theme-effects-above h-full">
         <AppShell
-          status={status}
-          power={power}
-          load={load}
+          section={layout.section}
           projects={projects}
           project={project ?? null}
+          running={runningCount}
           failure={failure}
-          busy={runBusy}
           updateAvailable={update.check?.state === 'available' ? update.check.newVersion : null}
-          layout={layout}
-          patch={patchLayout}
+          sidebarCollapsed={layout.sidebarCollapsed}
+          onSection={(section) => {
+            // Choosing a section leaves whatever project was open: the rail
+            // and the detail screen are the same slot, and staying on the
+            // project would make the rail lie about where you are.
+            setOpenProject(null);
+            patchLayout({ section });
+          }}
           onOpenProject={openProjectById}
           onNewProject={() => setCreating(true)}
           onRefresh={() => void refresh()}
           onOpenPalette={() => setPaletteOpen(true)}
-          onOpenActivity={() => setActivityOpen(true)}
+          onOpenActivity={() => patchLayout({ section: 'activity' })}
           onInstallUpdate={openUpdates}
-          onOpenFiles={() => {
-            if (project) setEditing(true);
-          }}
-          onStart={() => {
-            if (project) void runAction(project, 'started', guard(startProject));
-          }}
-          onStop={() => {
-            if (project) void runAction(project, 'stopped', stopProject);
-          }}
-          onRestart={() => {
-            if (project) void runAction(project, 'restarted', guard(restartProject));
-          }}
+          onToggleSidebar={() => patchLayout({ sidebarCollapsed: !layout.sidebarCollapsed })}
+          overviewPane={
+            <Overview
+              status={status}
+              load={load}
+              projects={projects}
+              activity={activity}
+              onNewProject={() => setCreating(true)}
+              onOpenProject={openProjectById}
+              onGoProjects={() => patchLayout({ section: 'projects' })}
+              onGoActivity={() => patchLayout({ section: 'activity' })}
+            />
+          }
           detailsPane={
             project ? (
               <ProjectDetail
@@ -535,6 +552,7 @@ export default function App() {
               />
             ) : null
           }
+          activityPane={<Activity projects={projects} onOpenProject={openProjectById} />}
           discordPane={<Discord />}
           settingsPane={
             <Settings
@@ -551,7 +569,7 @@ export default function App() {
                 try {
                   window.localStorage.removeItem(PREFERENCES_KEY);
                   window.localStorage.removeItem('workspace.layout.v1');
-                  window.localStorage.removeItem('shell.layout.v1');
+                  window.localStorage.removeItem('shell.layout.v2');
                   window.localStorage.removeItem('panel.projectsView.v1');
                 } catch {
                   // Nothing to do: the defaults apply on the next start anyway.
@@ -563,7 +581,7 @@ export default function App() {
           projectsPane={
             <>
               {created && (
-                <div className="border-b border-edge px-4 py-3">
+                <div className="mb-4">
                   <CreatedSummary
                     created={created}
                     onDismiss={() => setCreated(null)}

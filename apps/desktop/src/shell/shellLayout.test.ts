@@ -1,91 +1,117 @@
+/**
+ * Reading and writing where the shell was.
+ *
+ * The loader's contract is that nothing it reads can stop the window opening.
+ * A file written by an older build, a truncated one, a hand-edited one with
+ * the wrong types in it — each has to produce a usable layout rather than an
+ * exception, and each is checked here.
+ */
 import { describe, expect, it } from 'vitest';
 
 import {
-  clampSidebar,
   defaultShellLayout,
   loadShellLayout,
-  MAX_SIDEBAR,
-  MIN_SIDEBAR,
   saveShellLayout,
+  SECTIONS,
   type LayoutStorage,
 } from './shellLayout';
 
-function storage(
-  initial: Record<string, string> = {},
-): LayoutStorage & { map: Map<string, string> } {
-  const map = new Map(Object.entries(initial));
+/** A storage that only holds what this test puts in it. */
+function storage(initial?: string): LayoutStorage & { written: string | null } {
+  let value = initial ?? null;
   return {
-    map,
-    getItem: (key) => map.get(key) ?? null,
-    setItem: (key, value) => {
-      map.set(key, value);
+    getItem: () => value,
+    setItem: (_key, next) => {
+      value = next;
+    },
+    get written() {
+      return value;
     },
   };
 }
 
-describe('clampSidebar', () => {
-  it('keeps a drag inside the usable range', () => {
-    expect(clampSidebar(10, 1920)).toBe(MIN_SIDEBAR);
-    expect(clampSidebar(9999, 1920)).toBe(MAX_SIDEBAR);
-    expect(clampSidebar(300, 1920)).toBe(300);
-  });
-
-  /** On a narrow window the ceiling has to leave a workspace behind. */
-  it('leaves room for the workspace on a small window', () => {
-    expect(clampSidebar(9999, 700)).toBe(340);
-  });
-
-  /** Even absurdly narrow: a sidebar you cannot see cannot be dragged back. */
-  it('never returns less than the minimum however small the window', () => {
-    expect(clampSidebar(9999, 200)).toBe(MIN_SIDEBAR);
-    expect(clampSidebar(0, 200)).toBe(MIN_SIDEBAR);
-  });
-});
-
 describe('loadShellLayout', () => {
-  it('is the default with nothing stored', () => {
+  it('uses the defaults when nothing has been stored', () => {
     expect(loadShellLayout(storage())).toEqual(defaultShellLayout);
+  });
+
+  it('uses the defaults when there is no storage at all', () => {
+    // Server-side rendering and the tests both reach this branch.
     expect(loadShellLayout(undefined)).toEqual(defaultShellLayout);
   });
 
-  it('survives corrupt json rather than refusing to open', () => {
-    expect(loadShellLayout(storage({ 'shell.layout.v1': '{not json' }))).toEqual(
-      defaultShellLayout,
-    );
-    expect(loadShellLayout(storage({ 'shell.layout.v1': 'null' }))).toEqual(defaultShellLayout);
+  it('survives a file that is not JSON', () => {
+    expect(loadShellLayout(storage('{ not json'))).toEqual(defaultShellLayout);
   });
 
-  /** A layout written by an older version is worth half-keeping. */
+  it('survives JSON that is not an object', () => {
+    for (const raw of ['null', '42', '"a string"', '[]']) {
+      expect(loadShellLayout(storage(raw)), raw).toEqual(
+        raw === '[]' ? { ...defaultShellLayout } : defaultShellLayout,
+      );
+    }
+  });
+
+  it('reads a layout it wrote itself', () => {
+    const written = storage();
+    saveShellLayout(written, {
+      section: 'discord',
+      sidebarCollapsed: true,
+      projectId: 'prj_1',
+    });
+
+    expect(loadShellLayout(written)).toEqual({
+      section: 'discord',
+      sidebarCollapsed: true,
+      projectId: 'prj_1',
+    });
+  });
+
   it('keeps the fields it recognises and defaults the rest', () => {
-    const layout = loadShellLayout(
-      storage({ 'shell.layout.v1': JSON.stringify({ sidebarWidth: 300, unknown: 'x' }) }),
-    );
-    expect(layout.sidebarWidth).toBe(300);
-    expect(layout.tool).toBe(defaultShellLayout.tool);
-    expect(layout.sidebarVisible).toBe(defaultShellLayout.sidebarVisible);
+    // Half-keeping is the point: a layout written by an older build should
+    // not cost the user every remembered field.
+    const half = loadShellLayout(storage(JSON.stringify({ section: 'settings' })));
+
+    expect(half.section).toBe('settings');
+    expect(half.sidebarCollapsed).toBe(defaultShellLayout.sidebarCollapsed);
+    expect(half.projectId).toBeNull();
   });
 
-  it('refuses a tool id it does not have', () => {
-    const layout = loadShellLayout(
-      storage({ 'shell.layout.v1': JSON.stringify({ tool: 'cryptomining' }) }),
-    );
-    expect(layout.tool).toBe(defaultShellLayout.tool);
+  it('refuses a section this build does not have', () => {
+    // The stored value is a string from disk, so it is not enough that the
+    // type says it cannot be `resources` — a `v1` file is full of them.
+    const stored = loadShellLayout(storage(JSON.stringify({ section: 'resources' })));
+    expect(stored.section).toBe(defaultShellLayout.section);
   });
 
-  it('round-trips through save', () => {
-    const store = storage();
-    const layout = { ...defaultShellLayout, sidebarWidth: 321, tool: 'ports' as const };
-    saveShellLayout(store, layout);
-    expect(loadShellLayout(store)).toEqual(layout);
+  it('accepts every section this build offers', () => {
+    for (const section of SECTIONS) {
+      expect(loadShellLayout(storage(JSON.stringify({ section }))).section).toBe(section);
+    }
+  });
+
+  it('refuses a project id that is not a string', () => {
+    expect(loadShellLayout(storage(JSON.stringify({ projectId: 7 }))).projectId).toBeNull();
+  });
+});
+
+describe('saveShellLayout', () => {
+  it('writes the layout it was given', () => {
+    const written = storage();
+    saveShellLayout(written, defaultShellLayout);
+    expect(JSON.parse(written.written ?? 'null')).toEqual(defaultShellLayout);
   });
 
   it('ignores a storage that refuses to write', () => {
+    // Private browsing and a full quota both throw here. Losing a remembered
+    // section is not worth an error in front of anyone.
     const refusing: LayoutStorage = {
       getItem: () => null,
       setItem: () => {
-        throw new Error('quota');
+        throw new Error('quota exceeded');
       },
     };
+
     expect(() => saveShellLayout(refusing, defaultShellLayout)).not.toThrow();
   });
 });

@@ -26,7 +26,6 @@ export interface ProjectSummary {
   status: string;
   desiredState: string;
   color: string | null;
-  /** `DOCKER` or `HOST`. A host project runs as a process on this machine. */
 }
 
 export interface AvailableUpdate {
