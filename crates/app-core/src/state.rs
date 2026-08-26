@@ -4,11 +4,10 @@ use std::sync::Arc;
 
 use project_host_compatibility::{Assessment, ResourceDefaults};
 use project_host_database::Database;
-use project_host_docker_manager::{DockerProbe, DockerStatus};
 use tokio::sync::RwLock;
 
 use crate::config::AppConfig;
-use crate::runner::host::HostRegistry;
+use crate::orchestrator::ProcessRegistry;
 use project_host_resources::{MachineUsage, Reserve, SystemUsage, UsageSource};
 
 use crate::keys::MasterKey;
@@ -23,11 +22,9 @@ pub struct AppState(Arc<Inner>);
 pub struct Inner {
     pub config: AppConfig,
     pub database: Database,
-    pub docker: Arc<dyn DockerProbe>,
     /// Last observed daemon status, refreshed on a timer rather than probed per
     /// call — a status bar that pinged Docker on every render would turn a slow
     /// daemon into a slow interface.
-    pub docker_status: RwLock<DockerStatus>,
     /// What this machine is, and the resource defaults that follow from it.
     ///
     /// Decided once at startup: the hardware does not change while the process
@@ -45,7 +42,7 @@ pub struct Inner {
     /// Lives here because it is process-scoped by nature: a supervisor handle
     /// owns a child of *this* process, so nothing outside the process can hold
     /// a meaningful one.
-    pub host_projects: HostRegistry,
+    pub host_projects: ProcessRegistry,
     /// Where usage figures come from. Behind a trait so a test can describe a
     /// machine that is out of memory, which is the case that matters and the
     /// one that cannot be arranged for real.
@@ -97,8 +94,6 @@ impl AppState {
     pub fn new(
         config: AppConfig,
         database: Database,
-        docker: Arc<dyn DockerProbe>,
-        docker_status: DockerStatus,
         assessment: Assessment,
         identity: Identity,
         master_key: Option<MasterKey>,
@@ -106,15 +101,13 @@ impl AppState {
         Self(Arc::new(Inner {
             config,
             database,
-            docker,
-            docker_status: RwLock::new(docker_status),
             assessment,
             instance_id: identity.instance_id,
             app_version: identity.app_version,
             schema_version: identity.schema_version,
             started_at: std::time::Instant::now(),
             started_at_wall: identity.started_at_wall,
-            host_projects: HostRegistry::new(),
+            host_projects: ProcessRegistry::new(),
             usage: Arc::new(SystemUsage::new()),
             // Unknown until the sampler has run once. Admission treats that as
             // "cannot say" and allows, which is the honest answer before
@@ -162,7 +155,7 @@ impl AppState {
     }
 
     /// Every host project this process is running.
-    pub fn host_projects(&self) -> &HostRegistry {
+    pub fn host_projects(&self) -> &ProcessRegistry {
         &self.0.host_projects
     }
 
@@ -227,22 +220,6 @@ impl AppState {
     /// Monotonic, so a system clock change cannot produce a negative uptime.
     pub fn uptime_seconds(&self) -> u64 {
         self.0.started_at.elapsed().as_secs()
-    }
-
-    pub async fn docker_status(&self) -> DockerStatus {
-        self.0.docker_status.read().await.clone()
-    }
-
-    /// Re-probe and store. Called by the background refresher.
-    pub async fn refresh_docker_status(&self) -> DockerStatus {
-        let status = self.0.docker.probe().await;
-        *self.0.docker_status.write().await = status.clone();
-        status
-    }
-
-    /// Store a status without probing. Used when the probe itself timed out.
-    pub async fn replace_docker_status(&self, status: DockerStatus) {
-        *self.0.docker_status.write().await = status;
     }
 }
 

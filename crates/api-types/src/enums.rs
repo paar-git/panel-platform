@@ -175,21 +175,6 @@ string_enum! {
 }
 
 string_enum! {
-    /// How a project runs: as an ordinary process on this machine, or inside a
-    /// container.
-    ///
-    /// `Host` is the default and the only value the interface produces. `Docker`
-    /// remains in the enum and in the schema's `CHECK` because
-    /// `docker-manager` still compiles and a hand-set row must stay readable,
-    /// but nothing a user can press writes it. Migration 0008 moved every
-    /// existing row to `Host`.
-    RunMode {
-        Docker => "DOCKER",
-        Host => "HOST",
-    }
-}
-
-string_enum! {
     RestartPolicy {
         No => "NO",
         OnFailure => "ON_FAILURE",
@@ -377,15 +362,6 @@ mod tests {
     ///
     /// There is deliberately no `Default` impl: the default lives on the
     /// database column, and a second one in Rust could disagree with it.
-    #[test]
-    fn run_mode_round_trips_through_its_wire_value() {
-        for mode in RunMode::ALL {
-            assert_eq!(RunMode::from_str(mode.as_str()), Ok(*mode));
-        }
-        assert_eq!(RunMode::Docker.as_str(), "DOCKER");
-        assert_eq!(RunMode::Host.as_str(), "HOST");
-        assert!(RunMode::from_str("PODMAN").is_err());
-    }
 
     #[test]
     fn a_variant_of_another_enum_does_not_deserialise() {

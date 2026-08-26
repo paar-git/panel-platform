@@ -284,12 +284,11 @@ CREATE TABLE others (
         assert_eq!(name, "main");
         assert_eq!(order, 0);
 
-        let id: String = sqlx::query_scalar(
-            "SELECT id FROM project_processes WHERE project_id = 'p1'",
-        )
-        .fetch_one(&mut *connection)
-        .await
-        .expect("id");
+        let id: String =
+            sqlx::query_scalar("SELECT id FROM project_processes WHERE project_id = 'p1'")
+                .fetch_one(&mut *connection)
+                .await
+                .expect("id");
         assert!(
             project_host_api_types::ProcessId::parse(&id).is_ok(),
             "a row this migration made must be indistinguishable from one the \
@@ -336,7 +335,12 @@ CREATE TABLE others (
                 .await
                 .expect("columns");
 
-        for kept in ["runtime", "runtime_version", "package_manager", "template_id"] {
+        for kept in [
+            "runtime",
+            "runtime_version",
+            "package_manager",
+            "template_id",
+        ] {
             assert!(columns.iter().any(|column| column == kept), "lost {kept}");
         }
         for moved in [

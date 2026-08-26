@@ -25,7 +25,7 @@ export type ApiResponse<T> =
   | { ok: false; error: ApiError };
 
 /** Machine-readable outcome. Stable across releases. */
-export type ErrorCode = 'VALIDATION_FAILED' | 'UNAUTHENTICATED' | 'SESSION_EXPIRED' | 'FORBIDDEN' | 'NOT_FOUND' | 'CONFLICT' | 'PROJECT_LOCKED' | 'OPERATION_IN_PROGRESS' | 'PRECONDITION_FAILED' | 'PAYLOAD_TOO_LARGE' | 'RATE_LIMITED' | 'DOCKER_UNAVAILABLE' | 'DOCKER_OPERATION_FAILED' | 'PORT_UNAVAILABLE' | 'RESOURCE_LIMIT_EXCEEDED' | 'ARCHIVE_REJECTED' | 'PATH_REJECTED' | 'INTEGRITY_CHECK_FAILED' | 'SETUP_REQUIRED' | 'AGENT_STARTING' | 'INTERNAL';
+export type ErrorCode = 'VALIDATION_FAILED' | 'UNAUTHENTICATED' | 'SESSION_EXPIRED' | 'FORBIDDEN' | 'NOT_FOUND' | 'CONFLICT' | 'PROJECT_LOCKED' | 'OPERATION_IN_PROGRESS' | 'PRECONDITION_FAILED' | 'PAYLOAD_TOO_LARGE' | 'RATE_LIMITED' | 'PORT_UNAVAILABLE' | 'RESOURCE_LIMIT_EXCEEDED' | 'ARCHIVE_REJECTED' | 'PATH_REJECTED' | 'INTEGRITY_CHECK_FAILED' | 'SETUP_REQUIRED' | 'AGENT_STARTING' | 'INTERNAL';
 
 /** One field that failed validation. */
 export interface FieldError {
@@ -97,11 +97,10 @@ export interface BackupSummary {
   verified_at?: string | null;
 }
 
-/** The five independent connectivity states from `docs/architecture.md` §8. Deliberately not collapsed into one flag: an unplugged cable and a stopped Docker daemon need different remedies. */
+/** The independent connectivity states from `docs/architecture.md` §8. Deliberately not collapsed into one flag: an unplugged cable and an unreachable agent need different remedies. */
 export interface Connectivity {
   agent: Availability;
   checked_at: string;
-  docker: Availability;
   internet: Availability;
   lan: Availability;
 }
@@ -126,11 +125,11 @@ export interface EnvVarInput {
 export type NetworkMode = 'NONE' | 'INTERNAL' | 'LAN' | 'INTERNET';
 
 export interface PortRequest {
-  container_port: number;
   expose_to_lan?: boolean;
   /** Omit to let the agent allocate from its pool. Values below 1024 are rejected, so privileged-port abuse is not expressible. */
   host_port?: number | null;
   is_primary?: boolean;
+  port: number;
 }
 
 export interface NetworkConfigRequest {
@@ -249,17 +248,6 @@ export interface DeploymentSummary {
 /** What the user asked for. Survives restarts; the reconciler converges observed state towards it. */
 export type DesiredState = 'RUNNING' | 'STOPPED' | 'ARCHIVED';
 
-export interface DockerStatus {
-  api_version?: string | null;
-  available: boolean;
-  containers_running?: number | null;
-  /** How the agent reached the daemon, e.g. `npipe`, `unix-socket`. */
-  endpoint_kind?: string | null;
-  /** Present only when unavailable: what the user should do about it. */
-  install_hint?: string | null;
-  version?: string | null;
-}
-
 /** Identifier prefixed with `env_`. */
 export type EnvVarId = string;
 
@@ -337,11 +325,11 @@ export type PortId = string;
 export interface PortMapping {
   /** `127.0.0.1` unless the user explicitly asked for LAN exposure. */
   bind_address: string;
-  container_port: number;
   /** `None` until the agent allocates one. */
   host_port?: number | null;
   id: PortId;
   is_primary: boolean;
+  port: number;
   protocol: string;
 }
 

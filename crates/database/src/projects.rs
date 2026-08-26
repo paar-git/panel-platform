@@ -507,12 +507,11 @@ pub async fn find_runtime(database: &Database, project_id: &str) -> Result<Optio
 
 /// One row per process, in the order they are started.
 pub async fn list_processes(database: &Database, project_id: &str) -> Result<Vec<ProcessRecord>> {
-    let rows = sqlx::query(
-        "SELECT * FROM project_processes WHERE project_id = ? ORDER BY start_order",
-    )
-    .bind(project_id)
-    .fetch_all(database.pool())
-    .await?;
+    let rows =
+        sqlx::query("SELECT * FROM project_processes WHERE project_id = ? ORDER BY start_order")
+            .bind(project_id)
+            .fetch_all(database.pool())
+            .await?;
 
     Ok(rows.iter().map(process_from_row).collect())
 }
@@ -599,10 +598,7 @@ pub async fn set_process_status(
 }
 
 /// Count one more restart of this process, and return the new total.
-pub async fn increment_process_restart_count(
-    database: &Database,
-    process_id: &str,
-) -> Result<i64> {
+pub async fn increment_process_restart_count(database: &Database, process_id: &str) -> Result<i64> {
     let count: i64 = sqlx::query_scalar(
         "UPDATE project_processes SET restart_count = restart_count + 1
           WHERE id = ? RETURNING restart_count",

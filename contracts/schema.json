@@ -210,16 +210,13 @@
       "type": "object"
     },
     "Connectivity": {
-      "description": "The five independent connectivity states from `docs/architecture.md` §8.\nDeliberately not collapsed into one flag: an unplugged cable and a stopped\nDocker daemon need different remedies.",
+      "description": "The independent connectivity states from `docs/architecture.md` §8.\nDeliberately not collapsed into one flag: an unplugged cable and an\nunreachable agent need different remedies.",
       "properties": {
         "agent": {
           "$ref": "#/$defs/Availability"
         },
         "checked_at": {
           "type": "string"
-        },
-        "docker": {
-          "$ref": "#/$defs/Availability"
         },
         "internet": {
           "$ref": "#/$defs/Availability"
@@ -230,7 +227,6 @@
       },
       "required": [
         "agent",
-        "docker",
         "lan",
         "internet",
         "checked_at"
@@ -461,51 +457,6 @@
       ],
       "type": "string"
     },
-    "DockerStatus": {
-      "properties": {
-        "api_version": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "available": {
-          "type": "boolean"
-        },
-        "containers_running": {
-          "format": "uint32",
-          "minimum": 0,
-          "type": [
-            "integer",
-            "null"
-          ]
-        },
-        "endpoint_kind": {
-          "description": "How the agent reached the daemon, e.g. `npipe`, `unix-socket`.",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "install_hint": {
-          "description": "Present only when unavailable: what the user should do about it.",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "version": {
-          "type": [
-            "string",
-            "null"
-          ]
-        }
-      },
-      "required": [
-        "available"
-      ],
-      "type": "object"
-    },
     "EnvVarId": {
       "description": "Identifier prefixed with `env_`.",
       "type": "string"
@@ -623,16 +574,6 @@
         {
           "const": "RATE_LIMITED",
           "description": "Too many requests.",
-          "type": "string"
-        },
-        {
-          "const": "DOCKER_UNAVAILABLE",
-          "description": "The Docker daemon is unreachable.",
-          "type": "string"
-        },
-        {
-          "const": "DOCKER_OPERATION_FAILED",
-          "description": "Docker is reachable but the operation failed.",
           "type": "string"
         },
         {
@@ -1138,12 +1079,6 @@
           "description": "`127.0.0.1` unless the user explicitly asked for LAN exposure.",
           "type": "string"
         },
-        "container_port": {
-          "format": "uint16",
-          "maximum": 65535,
-          "minimum": 0,
-          "type": "integer"
-        },
         "host_port": {
           "description": "`None` until the agent allocates one.",
           "format": "uint16",
@@ -1160,13 +1095,19 @@
         "is_primary": {
           "type": "boolean"
         },
+        "port": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
         "protocol": {
           "type": "string"
         }
       },
       "required": [
         "id",
-        "container_port",
+        "port",
         "protocol",
         "bind_address",
         "is_primary"
@@ -1175,12 +1116,6 @@
     },
     "PortRequest": {
       "properties": {
-        "container_port": {
-          "format": "uint16",
-          "maximum": 65535,
-          "minimum": 0,
-          "type": "integer"
-        },
         "expose_to_lan": {
           "default": false,
           "type": "boolean"
@@ -1198,10 +1133,16 @@
         "is_primary": {
           "default": false,
           "type": "boolean"
+        },
+        "port": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
         }
       },
       "required": [
-        "container_port"
+        "port"
       ],
       "type": "object"
     },
@@ -1985,9 +1926,6 @@
     "deployment_summary": {
       "$ref": "#/$defs/DeploymentSummary"
     },
-    "docker_status": {
-      "$ref": "#/$defs/DockerStatus"
-    },
     "env_var_input": {
       "$ref": "#/$defs/EnvVarInput"
     },
@@ -2081,7 +2019,6 @@
     "server_info",
     "platform_capabilities",
     "connectivity",
-    "docker_status",
     "host_metrics",
     "project_metrics",
     "project_summary",

@@ -15,10 +15,8 @@
 //! service after a reboot looked like the application never opened.
 
 use std::path::PathBuf;
-use std::sync::Arc;
 
 use project_host_database::{queries, recover, time, Database, RecoveryReport};
-use project_host_docker_manager::{system_probe, DockerProbe, DockerStatus};
 use project_host_platform::{PathProvider, StandardPaths};
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
@@ -28,16 +26,6 @@ use crate::startup::StartupDiagnostics;
 use crate::state::{AppState, Identity};
 
 pub const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
-
-/// How long optional Docker probing may take after the window is already up.
-///
-/// Matches the probe's own budget. A second cap here is what stops a test
-/// double that never returns — or a bollard call that ignores its timeout —
-/// from running forever in the background.
-const OPTIONAL_DOCKER_BUDGET: std::time::Duration = std::time::Duration::from_secs(4);
-
-/// How often the Docker daemon is re-probed in the background.
-const DOCKER_REFRESH_INTERVAL: std::time::Duration = std::time::Duration::from_secs(15);
 
 /// How often the machine's memory and CPU are sampled.
 ///
@@ -80,7 +68,6 @@ pub enum RuntimeError {
 pub struct Runtime {
     state: AppState,
     paths: StandardPaths,
-    refresher: Option<JoinHandle<()>>,
     sampler: Option<JoinHandle<()>>,
     reconciler: Option<JoinHandle<()>>,
     power: Option<JoinHandle<()>>,
@@ -107,18 +94,6 @@ impl std::fmt::Debug for Runtime {
 impl Runtime {
     /// Prepare everything the user interface will need.
     pub async fn start(config: AppConfig, paths: StandardPaths) -> Result<Self, RuntimeError> {
-        Self::start_with_probe(config, paths, Arc::new(system_probe())).await
-    }
-
-    /// The same as [`start`], with a Docker probe a test can control.
-    ///
-    /// Production always uses [`start`]. Tests inject a probe that hangs or
-    /// fails so we can prove a mute daemon cannot keep the window closed.
-    pub async fn start_with_probe(
-        config: AppConfig,
-        paths: StandardPaths,
-        probe: Arc<dyn DockerProbe>,
-    ) -> Result<Self, RuntimeError> {
         let diagnostics = std::sync::Arc::new(std::sync::Mutex::new(StartupDiagnostics::default()));
         let critical_started = std::time::Instant::now();
 
@@ -177,11 +152,6 @@ impl Runtime {
             );
         }
 
-        // Left unchecked on purpose. Probing Docker here is what made a
-        // starting Docker Desktop — or a named pipe that never answers —
-        // look like the application did not open. The window asks later.
-        let docker_status = DockerStatus::unchecked();
-
         // sysinfo only. GPU, WSL and firmware virtualization need subprocesses
         // that hang after a reboot; they run in complete_optional_startup.
         let started = std::time::Instant::now();
@@ -223,8 +193,6 @@ impl Runtime {
         let state = AppState::new(
             config,
             database,
-            probe,
-            docker_status,
             assessment,
             Identity {
                 instance_id,
@@ -251,7 +219,6 @@ impl Runtime {
         Ok(Self {
             state,
             paths,
-            refresher: None,
             sampler: None,
             reconciler: None,
             power: None,
@@ -299,38 +266,6 @@ impl Runtime {
 
     pub fn paths(&self) -> &StandardPaths {
         &self.paths
-    }
-
-    /// Start the background Docker refresher.
-    ///
-    /// Kept separate from [`Runtime::start`] so tests can construct a runtime
-    /// without a timer running underneath them. Calling it twice replaces the
-    /// previous task rather than leaking a second one.
-    pub fn spawn_docker_refresher(&mut self, mut shutdown: watch::Receiver<bool>) {
-        if let Some(previous) = self.refresher.take() {
-            previous.abort();
-        }
-
-        let state = self.state.clone();
-        self.refresher = Some(tokio::spawn(async move {
-            let mut ticker = tokio::time::interval(DOCKER_REFRESH_INTERVAL);
-            // The first tick completes immediately; the status was already
-            // probed during startup, so skip it.
-            ticker.tick().await;
-            loop {
-                tokio::select! {
-                    _ = ticker.tick() => {
-                        let status = state.refresh_docker_status().await;
-                        if let Err(error) =
-                            queries::record_heartbeat(state.database(), status.available).await
-                        {
-                            tracing::warn!(%error, "could not record a heartbeat");
-                        }
-                    }
-                    _ = shutdown.changed() => break,
-                }
-            }
-        }));
     }
 
     /// Sample what the machine is using, on a timer.
@@ -416,19 +351,13 @@ impl Runtime {
     /// Stop cleanly: stop host projects, flag the shutdown, checkpoint the WAL,
     /// close the pool.
     ///
-    /// This does **not** stop project *containers*. Docker keeps them running
-    /// under its own restart policy, which is what lets a bot stay online after
-    /// the window is closed.
-    ///
-    /// Host projects are the opposite case and are stopped here. They are
-    /// children of this process, so they would die with it regardless; stopping
-    /// them deliberately is the difference between a clean stop with `STOPPED`
-    /// recorded and a process that vanishes leaving the database claiming it
-    /// runs. It happens before the pool closes, because it writes.
+    /// Every project stops. Nothing outlives the application any more: a
+    /// project is a set of children of this process, so they would die with it
+    /// regardless. Stopping them deliberately is the difference between a
+    /// clean stop with `STOPPED` recorded and a process that vanishes leaving
+    /// the database claiming it runs. It happens before the pool closes,
+    /// because it writes.
     pub async fn shutdown(mut self) {
-        if let Some(refresher) = self.refresher.take() {
-            refresher.abort();
-        }
         if let Some(sampler) = self.sampler.take() {
             sampler.abort();
         }
@@ -483,37 +412,13 @@ pub async fn run_optional_startup(
     diagnostics: std::sync::Arc<std::sync::Mutex<StartupDiagnostics>>,
 ) {
     let started = std::time::Instant::now();
-    if !state.config().docker_enabled {
-        record(&diagnostics, "docker", started.elapsed(), "skipped");
-        return;
+    if let Err(error) = queries::record_heartbeat(state.database()).await {
+        tracing::warn!(%error, "could not record a heartbeat");
+        record(&diagnostics, "heartbeat", started.elapsed(), "error");
+    } else {
+        record(&diagnostics, "heartbeat", started.elapsed(), "ok");
     }
 
-    let status =
-        match tokio::time::timeout(OPTIONAL_DOCKER_BUDGET, state.refresh_docker_status()).await {
-            Ok(status) => status,
-            Err(_) => {
-                let status = DockerStatus::degraded(
-                    "timeout".to_string(),
-                    "The Docker daemon did not answer in time.".to_string(),
-                );
-                state.replace_docker_status(status.clone()).await;
-                status
-            }
-        };
-    let outcome = if status.available {
-        "ok"
-    } else if status.is_unchecked() {
-        "unchecked"
-    } else if status.error.as_deref().is_some_and(|e| e.contains("time")) {
-        "timeout"
-    } else {
-        "unavailable"
-    };
-    record(&diagnostics, "docker", started.elapsed(), outcome);
-    tracing::info!(docker = %status.summary(), "docker probe complete");
-    if let Err(error) = queries::record_heartbeat(state.database(), status.available).await {
-        tracing::warn!(%error, "could not record a heartbeat");
-    }
     // PowerShell CIM and `wsl --status` are not run here. They flash a
     // console on Windows even with CREATE_NO_WINDOW, and nothing on this
     // path needs GPU or WSL facts. Toolchain install still scans when the

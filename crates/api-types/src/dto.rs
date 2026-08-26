@@ -58,33 +58,15 @@ pub struct PlatformCapabilities {
     pub firewall_management: bool,
 }
 
-/// The five independent connectivity states from `docs/architecture.md` §8.
-/// Deliberately not collapsed into one flag: an unplugged cable and a stopped
-/// Docker daemon need different remedies.
+/// The independent connectivity states from `docs/architecture.md` §8.
+/// Deliberately not collapsed into one flag: an unplugged cable and an
+/// unreachable agent need different remedies.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct Connectivity {
     pub agent: Availability,
-    pub docker: Availability,
     pub lan: Availability,
     pub internet: Availability,
     pub checked_at: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-pub struct DockerStatus {
-    pub available: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub version: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub api_version: Option<String>,
-    /// How the agent reached the daemon, e.g. `npipe`, `unix-socket`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub endpoint_kind: Option<String>,
-    /// Present only when unavailable: what the user should do about it.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub install_hint: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub containers_running: Option<u32>,
 }
 
 // ---------------------------------------------------------------- metrics
@@ -262,7 +244,7 @@ pub struct NetworkConfig {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct PortMapping {
     pub id: PortId,
-    pub container_port: u16,
+    pub port: u16,
     /// `None` until the agent allocates one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub host_port: Option<u16>,
@@ -367,7 +349,7 @@ pub struct NetworkConfigRequest {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct PortRequest {
-    pub container_port: u16,
+    pub port: u16,
     /// Omit to let the agent allocate from its pool. Values below 1024 are
     /// rejected, so privileged-port abuse is not expressible.
     #[serde(default, skip_serializing_if = "Option::is_none")]

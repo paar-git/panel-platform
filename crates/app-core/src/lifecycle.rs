@@ -2,41 +2,28 @@
 //!
 //! The sequence, and why it is this order:
 //!
-//! 1. **Scaffold** — write the project's `Dockerfile` and starter files if they
-//!    are missing, so there is something to build.
-//! 2. **Network and volume** — created before the container that references
-//!    them, and safe to repeat after a partial failure.
-//! 3. **Build the image** — skipped when one already exists, because rebuilding
-//!    on every start would make starting a bot take minutes.
-//! 4. **Create the container** — from a spec that `docker-manager` hardens and
-//!    then re-audits before it reaches Docker.
-//! 5. **Start it**, and record what Docker then says about it.
+//! 1. **Admit it** — refuse before anything is written or spawned, so a
+//!    refusal leaves the project exactly as it was.
+//! 2. **Write the intent** — `desired_state`, then `STARTING`.
+//! 3. **Hand it to the orchestrator**, which resolves the toolchain, allocates
+//!    ports, runs install and build, and starts each process in order.
+//! 4. **Record what was observed**, never what was intended.
 //!
-//! Status is written from what Docker reports, never from what was intended.
-//! That separation is the reason the database has both `status` and
-//! `desired_state`.
+//! That last rule is the reason the database has both `status` and
+//! `desired_state`, and it is enforced here rather than trusted to each
+//! caller: every outcome goes through [`record`].
 //!
-//! **None of this has been run against a Docker daemon.** It compiles, and its
-//! translation into Docker's API is unit tested, but the machine it was written
-//! on has no Docker. Treat every claim about runtime behaviour here as
-//! unverified.
+//! **Nothing here outlives the application.** A project is a set of children
+//! of this process, so quitting stops it. That was not true when a daemon ran
+//! the containers, and it is why shutdown now stops everything rather than
+//! exempting anything.
 
 use std::path::Path;
-use std::str::FromStr;
-use std::sync::Arc;
 
-use crate::images::{dockerfile_for, starter_files, ImageSpec};
-use crate::runner::docker::DockerRunner;
-use crate::runner::host::HostRunner;
-use crate::runner::{Observed, ProjectRunner, StartContext};
+use crate::orchestrator::{Observed, Orchestrator, StartContext};
 use crate::state::AppState;
-use project_host_api_types::{DesiredState, HealthState, ProjectStatus};
+use project_host_api_types::{DesiredState, ProjectStatus};
 use project_host_database::{projects, Database};
-use project_host_docker_manager::container_spec::{
-    ContainerSpec, NetworkMode, PortBinding, ResourceLimits, RestartPolicy, SpecInputs,
-};
-use project_host_docker_manager::lifecycle::ContainerState;
-use project_host_docker_manager::DockerError;
 use project_host_host_runner::supervisor::{HostStatus, DEFAULT_GRACE};
 use project_host_resources::{admit, Admission, RunningProject, Shortfall, Usage};
 
@@ -44,18 +31,12 @@ use project_host_resources::{admit, Admission, RunningProject, Shortfall, Usage}
 pub enum LifecycleError {
     #[error("database error: {0}")]
     Database(#[from] project_host_database::DatabaseError),
-    #[error("Docker is not available: {0}")]
-    Docker(#[from] DockerError),
     #[error("no project with id {0}")]
     NoSuchProject(String),
     #[error("could not prepare the project directory: {0}")]
     Scaffold(String),
-    #[error("the image build failed: {0}")]
+    #[error("the build failed: {0}")]
     Build(String),
-    /// Docker reported a container state this build has no status for. Only
-    /// reachable if `docker-manager` gains a word `ProjectStatus` does not have.
-    #[error("`{0}` is not a project status this build knows")]
-    UnknownStatus(String),
 
     /// Host mode only. The failure is reported before anything is spawned, so
     /// the message can name the runtime and the executables tried rather than
@@ -85,42 +66,41 @@ pub enum LifecycleError {
     /// Boxed for the same reason as above.
     #[error("{}", .0.message())]
     PortConflict(Box<crate::ports::Conflict>),
+
+    /// A project with nothing to run. A configuration mistake rather than a
+    /// failure, and refused by name: a start that succeeds having run nothing
+    /// is the worst possible answer to it.
+    #[error("project `{0}` has no processes to run")]
+    NoProcesses(String),
+
+    #[error("project `{project}` has no process named `{process}`")]
+    NoSuchProcess { project: String, process: String },
 }
 
-/// The runner a project's `run_mode` column asks for.
+/// The orchestrator for one project.
 ///
-/// An unrecognised value is `DOCKER`, not an error. The schema's `CHECK` already
-/// refuses anything but the two words, so the fallback is unreachable through
-/// the application; if a hand-edited database ever reached it, defaulting to the
-/// substrate that isolates is the safer of the two wrong answers.
-pub fn runner_for(app: &AppState, project: &projects::ProjectRecord) -> Arc<dyn ProjectRunner> {
-    match project.run_mode.as_str() {
-        "HOST" => Arc::new(HostRunner::new(
-            app.host_projects().clone(),
-            app.logs_root(),
-        )),
-        _ => Arc::new(DockerRunner::new()),
-    }
+/// There is one substrate now, so this is a constructor rather than a choice.
+/// It stays a function because the registry and the log root come from the
+/// application state, and every caller would otherwise reach for both.
+pub fn orchestrator_for(app: &AppState) -> Orchestrator {
+    Orchestrator::new(app.host_projects().clone(), app.logs_root())
 }
 
-/// Write a project's `Dockerfile` and starter files if they are absent.
+/// Write a project's starter files if they are absent.
 ///
 /// Never overwrites: once a project exists, its files belong to the user. A
-/// scaffold that clobbered an edited `Dockerfile` on every start would be a
-/// data-loss bug wearing a convenience hat. That is also what makes this safe to
-/// call for a fetched repository — its own files are already there, so only a
-/// missing `Dockerfile` gets written.
+/// scaffold that clobbered an edited file on every start would be a data-loss
+/// bug wearing a convenience hat. That is also what makes this safe to call
+/// for a fetched repository — its own files are already there, so nothing is
+/// written at all.
 ///
-/// The image is generated from the project's *planned* commands rather than from
-/// a fixed template, so a repository whose start command is `npm run serve` gets
-/// an image that runs `npm run serve`.
-pub fn scaffold(directory: &Path, spec: &ImageSpec<'_>) -> Result<(), LifecycleError> {
+/// No `Dockerfile` is written any more. One used to be, for every project
+/// including those that never went near a daemon.
+pub fn scaffold(directory: &Path, runtime: &str) -> Result<(), LifecycleError> {
     std::fs::create_dir_all(directory)
         .map_err(|error| LifecycleError::Scaffold(error.to_string()))?;
 
-    write_if_absent(&directory.join("Dockerfile"), &dockerfile_for(spec))?;
-
-    for (relative, contents) in starter_files(spec.runtime) {
+    for (relative, contents) in crate::starter::starter_files(runtime) {
         let path = directory.join(relative);
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)
@@ -139,109 +119,7 @@ fn write_if_absent(path: &Path, contents: &str) -> Result<(), LifecycleError> {
     std::fs::write(path, contents).map_err(|error| LifecycleError::Scaffold(error.to_string()))
 }
 
-/// Build the container specification for a stored project.
-pub(crate) async fn spec_for(
-    db: &Database,
-    project: &projects::ProjectRecord,
-    app_version: &str,
-) -> Result<ContainerSpec, LifecycleError> {
-    let runtime = projects::find_runtime(db, &project.id)
-        .await?
-        .ok_or_else(|| LifecycleError::NoSuchProject(project.id.clone()))?;
-    let ports = projects::list_ports(db, &project.id).await?;
-
-    let bindings: Vec<PortBinding> = ports
-        .iter()
-        .filter_map(|port| {
-            let host_port = u16::try_from(port.host_port?).ok()?;
-            Some(PortBinding {
-                container_port: u16::try_from(port.container_port).ok()?,
-                host_port,
-                protocol: port.protocol.clone(),
-                bind_address: port.bind_address.clone(),
-            })
-        })
-        .collect();
-
-    // The start command is stored as text but must reach Docker as a list.
-    // Splitting on whitespace is adequate because the value is ours, not the
-    // user's — it comes from the template, and nothing in it is quoted.
-    let command: Vec<String> = runtime
-        .start_command
-        .split_whitespace()
-        .map(str::to_string)
-        .collect();
-
-    Ok(ContainerSpec::build(SpecInputs {
-        slug: project.slug.clone(),
-        project_id: project.id.clone(),
-        template_id: runtime.template_id.clone(),
-        agent_version: app_version.to_string(),
-        image_tag: image_tag(&project.slug),
-        command,
-        working_dir: runtime.working_dir.clone(),
-        environment: Vec::new(),
-        project_dir: std::path::PathBuf::from(&project.directory),
-        data_volume: ContainerSpec::volume_name(&project.slug),
-        network_mode: match project.network_mode.as_str() {
-            "NONE" => NetworkMode::None,
-            "INTERNAL" => NetworkMode::Internal,
-            _ => NetworkMode::Internet,
-        },
-        ports: bindings,
-        limits: ResourceLimits::from_user_values(
-            u32::try_from(project.memory_limit_mb).unwrap_or(512),
-            project.cpu_limit_cores as f32,
-            u32::try_from(project.process_limit).unwrap_or(128),
-        ),
-        restart_policy: match project.restart_policy.as_str() {
-            "NO" => RestartPolicy::No,
-            "ON_FAILURE" => RestartPolicy::OnFailure,
-            "ALWAYS" => RestartPolicy::Always,
-            _ => RestartPolicy::UnlessStopped,
-        },
-        health_check: None,
-    }))
-}
-
-pub fn image_tag(slug: &str) -> String {
-    format!("projecthost/{slug}:latest")
-}
-
-/// Docker's health word, in this application's vocabulary.
-///
-/// `docker inspect` answers `healthy`, `unhealthy` or `starting`; the column
-/// stores `HEALTHY`, `UNHEALTHY`, `STARTING`, `NONE` or `UNKNOWN`. The two lists
-/// were passed straight through, which meant a container that had a health check
-/// and passed it ended its start with "value rejected by a database constraint" —
-/// after the image was built and the container was already running.
-///
-/// A word Docker has and we do not becomes `UNKNOWN` rather than an error: the
-/// container is up either way, and refusing to record that would be a worse
-/// answer than recording that its health is not known.
-pub(crate) fn health_state(reported: Option<&str>) -> Option<HealthState> {
-    let word = reported?;
-    Some(match word {
-        "healthy" => HealthState::Healthy,
-        "unhealthy" => HealthState::Unhealthy,
-        "starting" => HealthState::Starting,
-        "none" => HealthState::None,
-        _ => HealthState::Unknown,
-    })
-}
-
-/// The status word `docker-manager` derived, as the enum the column takes.
-///
-/// `ContainerState::project_status` already answers in this application's
-/// vocabulary, so this parse succeeds for every value it can return. It exists
-/// so that a word added there without a matching variant here is a reported
-/// error rather than a write the database refuses.
-pub(crate) fn project_status(state: &ContainerState) -> Result<ProjectStatus, LifecycleError> {
-    let word = state.project_status();
-    ProjectStatus::from_str(word).map_err(|_| LifecycleError::UnknownStatus(word.to_string()))
-}
-
-/// Start a project, building its image if there is not one already.
+/// Start a project: install, build, then every process in order.
 ///
 /// `force` skips the memory check. The estimate can be wrong and the user knows
 /// things the governor does not, so overriding is offered on refusal — as a
@@ -253,7 +131,6 @@ pub async fn start_forcing(
     force: bool,
 ) -> Result<String, LifecycleError> {
     let db = app.database();
-    let app_version = app.inner().app_version.clone();
     let project = projects::find_project(db, project_id)
         .await?
         .ok_or_else(|| LifecycleError::NoSuchProject(project_id.to_string()))?;
@@ -273,12 +150,11 @@ pub async fn start_forcing(
     projects::set_status(db, project_id, ProjectStatus::Starting, None).await?;
 
     let directory = std::path::PathBuf::from(&project.directory);
-    let outcome = runner_for(app, &project)
+    let outcome = orchestrator_for(app)
         .start(StartContext {
             db,
             project: &project,
             directory: &directory,
-            app_version: &app_version,
             master_key: app.master_key(),
         })
         .await;
@@ -309,16 +185,24 @@ pub async fn stop_host_projects(app: &AppState) -> Vec<String> {
     let registry = app.host_projects();
     let mut stopped = Vec::new();
 
-    for (project_id, handle) in registry.all().await {
-        if handle.observe().status != HostStatus::Running {
+    for (project_id, processes) in registry.all().await {
+        if !processes
+            .iter()
+            .any(|process| process.handle.observe().status == HostStatus::Running)
+        {
             continue;
         }
 
-        if let Err(error) = handle.stop(DEFAULT_GRACE).await {
-            // Report and carry on. One project that will not die must not
-            // prevent the other fourteen from being stopped, and must not
-            // prevent the database from being closed cleanly.
-            tracing::warn!(%project_id, %error, "could not stop a host project on shutdown");
+        // Reverse order, for the reason the orchestrator stops in reverse: a
+        // process was started against the ones before it.
+        for process in processes.iter().rev() {
+            if let Err(error) = process.handle.stop(DEFAULT_GRACE).await {
+                // Report and carry on. One process that will not die must not
+                // prevent the others from being stopped, and must not prevent
+                // the database from being closed cleanly.
+                tracing::warn!(%project_id, process = %process.name, %error,
+                    "could not stop a process on shutdown");
+            }
         }
 
         // Written from what happened, like every other status write. The
@@ -360,9 +244,25 @@ pub async fn running_projects(app: &AppState) -> Vec<RunningProject> {
             continue;
         }
 
-        let usage = match handles.get(&record.id).and_then(|handle| handle.pid()) {
-            Some(pid) => app.usage_source().process_tree(pid).unwrap_or_default(),
-            None => Usage {
+        // Every process of the project, summed. A project's cost is the cost
+        // of everything it runs, and counting only the first would understate
+        // a full-stack project by however much its web server uses.
+        let usage = match handles.get(&record.id) {
+            Some(processes) if !processes.is_empty() => processes
+                .iter()
+                .filter_map(|process| process.handle.pid())
+                .filter_map(|pid| app.usage_source().process_tree(pid))
+                .fold(Usage::default(), |total, usage| Usage {
+                    memory_bytes: total.memory_bytes + usage.memory_bytes,
+                    cpu_percent: match (total.cpu_percent, usage.cpu_percent) {
+                        (None, other) => other,
+                        (some, None) => some,
+                        (Some(a), Some(b)) => Some(a + b),
+                    },
+                }),
+            // Not running here: its declared limit is the only figure
+            // available, and it is an upper bound rather than a reading.
+            _ => Usage {
                 memory_bytes: record.memory_limit_mb.max(0).unsigned_abs() * 1024 * 1024,
                 cpu_percent: None,
             },
@@ -371,7 +271,6 @@ pub async fn running_projects(app: &AppState) -> Vec<RunningProject> {
         running.push(RunningProject {
             project_id: record.id,
             display_name: record.display_name,
-            run_mode: record.run_mode,
             usage,
         });
     }
@@ -465,7 +364,7 @@ pub async fn stop(app: &AppState, project_id: &str) -> Result<(), LifecycleError
     projects::set_desired_state(db, project_id, DesiredState::Stopped).await?;
     projects::set_status(db, project_id, ProjectStatus::Stopping, None).await?;
 
-    runner_for(app, &project).stop(&project).await?;
+    orchestrator_for(app).stop(&project).await?;
 
     // A user-requested stop is a clean one: exit 0, no failure reason.
     projects::record_stopped(db, project_id, Some(0), None).await?;
@@ -482,7 +381,7 @@ pub async fn kill(app: &AppState, project_id: &str) -> Result<(), LifecycleError
     projects::set_desired_state(db, project_id, DesiredState::Stopped).await?;
     projects::set_status(db, project_id, ProjectStatus::Stopping, None).await?;
 
-    runner_for(app, &project).kill(&project).await?;
+    orchestrator_for(app).kill(&project).await?;
 
     projects::record_stopped(db, project_id, None, None).await?;
     Ok(())
@@ -491,7 +390,6 @@ pub async fn kill(app: &AppState, project_id: &str) -> Result<(), LifecycleError
 /// Restart a project in place, without rebuilding its image.
 pub async fn restart(app: &AppState, project_id: &str) -> Result<String, LifecycleError> {
     let db = app.database();
-    let app_version = app.inner().app_version.clone();
     let project = projects::find_project(db, project_id)
         .await?
         .ok_or_else(|| LifecycleError::NoSuchProject(project_id.to_string()))?;
@@ -506,12 +404,15 @@ pub async fn restart(app: &AppState, project_id: &str) -> Result<String, Lifecyc
     projects::set_status(db, project_id, ProjectStatus::Restarting, None).await?;
 
     let directory = std::path::PathBuf::from(&project.directory);
-    let outcome = runner_for(app, &project)
-        .restart(StartContext {
+    // A restart is a stop followed by a start. There is no image to keep, so
+    // there is nothing a dedicated restart path could save.
+    let orchestrator = orchestrator_for(app);
+    let _ = orchestrator.stop(&project).await;
+    let outcome = orchestrator
+        .start(StartContext {
             db,
             project: &project,
             directory: &directory,
-            app_version: &app_version,
             master_key: app.master_key(),
         })
         .await;
@@ -526,11 +427,10 @@ pub async fn restart(app: &AppState, project_id: &str) -> Result<String, Lifecyc
 #[cfg(test)]
 mod tests_with_state {
     use super::*;
-    use project_host_api_types::{ProjectType, RunMode};
-    use project_host_database::projects::NewProject;
+    use project_host_api_types::ProjectType;
+    use project_host_database::projects::{NewProcess, NewProject};
 
-    /// An `AppState` backed by an in-memory database and a Docker daemon that
-    /// is not there — which is also the state of the machine this is written on.
+    /// An `AppState` backed by an in-memory database.
     async fn test_state() -> AppState {
         let database = project_host_database::Database::open_in_memory()
             .await
@@ -539,14 +439,6 @@ mod tests_with_state {
         AppState::new(
             crate::config::AppConfig::default(),
             database,
-            std::sync::Arc::new(crate::runner::tests::AbsentDocker),
-            project_host_docker_manager::DockerStatus::unavailable(
-                project_host_platform::DockerInstallHint {
-                    summary: "Docker is not installed.".to_string(),
-                    detail: String::new(),
-                    url: String::new(),
-                },
-            ),
             project_host_compatibility::Assessment {
                 tier: project_host_compatibility::PerformanceTier::Standard,
                 defaults: project_host_compatibility::ResourceDefaults {
@@ -583,9 +475,6 @@ mod tests_with_state {
                 source_url: None,
                 source_ref: None,
                 source_commit: None,
-                container_name: format!("ph-{slug}"),
-                network_name: format!("ph-{slug}-net"),
-                volume_name: format!("ph-{slug}-data"),
                 autostart: false,
                 restart_policy: "NO".to_string(),
                 network_mode: "INTERNET".to_string(),
@@ -597,29 +486,17 @@ mod tests_with_state {
                     runtime: "NODEJS".to_string(),
                     runtime_version: "latest".to_string(),
                     package_manager: "NPM".to_string(),
-                    install_command: None,
-                    build_command: None,
-                    start_command: "node index.js".to_string(),
-                    working_dir: "/app".to_string(),
                     entry_file: None,
                     publish_dir: None,
                     template_id: "node".to_string(),
-                    health_check_type: "NONE".to_string(),
-                    health_check_target: None,
-                    health_interval_s: 30,
-                    health_timeout_s: 5,
-                    health_retries: 3,
-                    health_start_period_s: 10,
                 },
+                processes: vec![NewProcess::simple("main", 0, "node index.js")],
                 ports: Vec::new(),
             },
         )
         .await
         .expect("create");
 
-        projects::set_run_mode(app.database(), &project.id, RunMode::Host)
-            .await
-            .expect("host mode");
         project.id
     }
 
@@ -804,156 +681,53 @@ mod tests_with_state {
 mod tests {
     use super::*;
 
-    /// A spec for a runtime, with the commands a plan would have supplied.
-    fn spec(runtime: &str) -> ImageSpec<'_> {
-        ImageSpec {
-            runtime,
-            install_command: None,
-            build_command: None,
-            start_command: "run-the-thing",
-            publish_dir: None,
-        }
-    }
-
+    /// Every runtime gets something to run, and none of them gets a
+    /// `Dockerfile`.
     #[test]
-    fn the_scaffold_writes_something_buildable_for_every_runtime() {
+    fn the_scaffold_writes_starter_files_and_never_a_dockerfile() {
         for runtime in project_host_project_manager::detection::Runtime::ALL {
             let directory = tempfile::tempdir().expect("temp dir");
-            scaffold(directory.path(), &spec(runtime.as_str())).expect("scaffold");
+            scaffold(directory.path(), runtime.as_str()).expect("scaffold");
 
-            let dockerfile = directory.path().join("Dockerfile");
             assert!(
-                dockerfile.exists(),
-                "{} produced no Dockerfile",
+                !directory.path().join("Dockerfile").exists(),
+                "{} was given a Dockerfile",
                 runtime.as_str()
             );
 
-            let contents = std::fs::read_to_string(&dockerfile).expect("read");
-            assert!(
-                contents.contains("FROM "),
-                "{}: no base image",
-                runtime.as_str()
-            );
+            // Polyglot is the one runtime with nothing sensible to scaffold:
+            // it is by definition a project that already has files.
+            if runtime != project_host_project_manager::detection::Runtime::Polyglot {
+                let written = std::fs::read_dir(directory.path()).expect("read").count();
+                assert!(
+                    written > 0,
+                    "{} was scaffolded with nothing at all",
+                    runtime.as_str()
+                );
+            }
         }
     }
 
+    /// Once a project exists, its files belong to the user.
     #[test]
-    fn the_scaffold_never_overwrites_what_the_user_edited() {
-        // The failure this prevents is silent data loss on every start.
+    fn a_scaffold_never_overwrites_an_edited_file() {
         let directory = tempfile::tempdir().expect("temp dir");
-        scaffold(directory.path(), &spec("NODEJS")).expect("first");
+        scaffold(directory.path(), "NODEJS").expect("first");
 
-        let entry = directory.path().join("index.js");
-        std::fs::write(&entry, "// my actual bot\n").expect("edit");
-        std::fs::write(directory.path().join("Dockerfile"), "FROM scratch\n").expect("edit");
+        let index = directory.path().join("index.js");
+        std::fs::write(
+            &index, "// mine
+",
+        )
+        .expect("edit");
 
-        scaffold(directory.path(), &spec("NODEJS")).expect("second");
+        scaffold(directory.path(), "NODEJS").expect("second");
 
         assert_eq!(
-            std::fs::read_to_string(&entry).expect("read"),
-            "// my actual bot\n"
+            std::fs::read_to_string(&index).expect("read"),
+            "// mine
+",
+            "the scaffold clobbered a file the user had edited"
         );
-        assert_eq!(
-            std::fs::read_to_string(directory.path().join("Dockerfile")).expect("read"),
-            "FROM scratch\n"
-        );
-    }
-
-    #[test]
-    fn no_scaffolded_image_runs_as_root() {
-        // The container is also started with an explicit non-root user, but an
-        // image whose own USER is root would still be wrong.
-        for runtime in ["NODEJS", "PYTHON", "GO", "RUST", "JAVA", "PHP", "RUBY"] {
-            let dockerfile = dockerfile_for(&spec(runtime));
-            assert!(
-                dockerfile.contains("USER 10001:10001") || dockerfile.contains("USER nonroot"),
-                "{runtime} is missing its unprivileged user"
-            );
-        }
-    }
-
-    /// Every word `docker inspect` can put in `State.Health.Status`, as Docker
-    /// spells it. The database column spells them differently, and passing them
-    /// through unchanged was a rejected write at the end of a successful start.
-    #[test]
-    fn dockers_health_words_become_values_the_column_allows() {
-        for (reported, expected) in [
-            ("healthy", HealthState::Healthy),
-            ("unhealthy", HealthState::Unhealthy),
-            ("starting", HealthState::Starting),
-            ("none", HealthState::None),
-        ] {
-            assert_eq!(health_state(Some(reported)), Some(expected), "{reported}");
-        }
-
-        // A word from a future Docker is recorded as unknown, not refused: the
-        // container is running either way.
-        assert_eq!(health_state(Some("delirious")), Some(HealthState::Unknown));
-        // No health check configured means nothing to write, so the column keeps
-        // whatever it held.
-        assert_eq!(health_state(None), None);
-    }
-
-    fn container_state(running: bool, exit_code: Option<i64>) -> ContainerState {
-        ContainerState {
-            id: "abc".to_string(),
-            status: "exited".to_string(),
-            running,
-            exit_code,
-            health: None,
-            started_at: None,
-            finished_at: None,
-            out_of_memory: false,
-        }
-    }
-
-    #[test]
-    fn every_status_docker_manager_derives_parses_into_the_enum() {
-        for (state, expected) in [
-            (container_state(true, None), ProjectStatus::Running),
-            (container_state(false, Some(0)), ProjectStatus::Stopped),
-            (container_state(false, None), ProjectStatus::Stopped),
-            (container_state(false, Some(137)), ProjectStatus::Failed),
-        ] {
-            assert_eq!(project_status(&state).expect("a known status"), expected);
-        }
-    }
-
-    /// Every status the schema allows is classified deliberately. A word added
-    /// to the column later falls through to "not running" by default, and this
-    /// is where that decision is made visible rather than implied.
-    #[test]
-    fn every_stored_status_is_classified_as_running_or_not() {
-        for status in [
-            "RUNNING",
-            "STARTING",
-            "RESTARTING",
-            "STOPPING",
-            "BUILDING",
-            "UNHEALTHY",
-        ] {
-            assert!(is_running(status), "{status} should count as running");
-        }
-
-        // A project in any of these can be reconfigured safely.
-        for status in ["CREATING", "STOPPED", "FAILED", "ARCHIVED", "DELETING"] {
-            assert!(!is_running(status), "{status} should not count as running");
-        }
-    }
-
-    #[test]
-    fn the_image_tag_is_derived_from_the_generated_slug() {
-        // Never from the display name, which is user input.
-        assert_eq!(
-            image_tag("quiet-harbor-4f2a"),
-            "projecthost/quiet-harbor-4f2a:latest"
-        );
-    }
-
-    #[test]
-    fn a_static_site_scaffold_puts_its_page_where_the_image_expects_it() {
-        let directory = tempfile::tempdir().expect("temp dir");
-        scaffold(directory.path(), &spec("STATIC")).expect("scaffold");
-        assert!(directory.path().join("public/index.html").exists());
     }
 }

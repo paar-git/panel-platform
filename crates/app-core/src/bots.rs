@@ -377,7 +377,7 @@ mod tests {
     /// A project to attach a bot to.
     async fn a_project(database: &Database, slug: &str) -> String {
         use project_host_api_types::ProjectType;
-        use project_host_database::projects::{self, NewProject, RuntimeSpec};
+        use project_host_database::projects::{self, NewProcess, NewProject, RuntimeSpec};
 
         let project = projects::create_project(
             database,
@@ -393,9 +393,6 @@ mod tests {
                 source_url: None,
                 source_ref: None,
                 source_commit: None,
-                container_name: format!("projecthost-{slug}"),
-                network_name: format!("projecthost-net-{slug}"),
-                volume_name: format!("projecthost-data-{slug}"),
                 autostart: false,
                 restart_policy: "UNLESS_STOPPED".to_string(),
                 network_mode: "INTERNET".to_string(),
@@ -407,20 +404,11 @@ mod tests {
                     runtime: "NODEJS".to_string(),
                     runtime_version: "22".to_string(),
                     package_manager: "NPM".to_string(),
-                    install_command: None,
-                    build_command: None,
-                    start_command: "node index.js".to_string(),
-                    working_dir: "/app".to_string(),
                     entry_file: Some("index.js".to_string()),
                     publish_dir: None,
                     template_id: "nodejs".to_string(),
-                    health_check_type: "NONE".to_string(),
-                    health_check_target: None,
-                    health_interval_s: 30,
-                    health_timeout_s: 5,
-                    health_retries: 3,
-                    health_start_period_s: 20,
                 },
+                processes: vec![NewProcess::simple("main", 0, "node index.js")],
                 ports: Vec::new(),
             },
         )

@@ -18,7 +18,9 @@ use project_host_api_types::{
 };
 use project_host_database::audit::{self, AuditEvent, AuditResult};
 use project_host_database::environment::{self, StoredValue};
-use project_host_database::projects::{self, NewProcess, NewPort, NewProject, ProjectUpdate, RuntimeSpec};
+use project_host_database::projects::{
+    self, NewPort, NewProcess, NewProject, ProjectUpdate, RuntimeSpec,
+};
 use project_host_database::{queries, Database};
 
 async fn db() -> Database {
@@ -73,7 +75,7 @@ fn new_project(slug: &str) -> NewProject {
             protocol: "tcp".to_string(),
             bind_address: "127.0.0.1".to_string(),
             is_primary: true,
-                process_id: None,
+            process_id: None,
         }],
     }
 }
@@ -1155,7 +1157,10 @@ async fn a_process_status_is_written_and_read_back() {
         .expect("list");
     assert_eq!(back[0].status, "CRASHED");
     assert_eq!(back[0].exit_code, Some(1));
-    assert_eq!(back[0].failure_reason.as_deref(), Some("exited immediately"));
+    assert_eq!(
+        back[0].failure_reason.as_deref(),
+        Some("exited immediately")
+    );
 }
 
 /// A crash loop is counted per process, because a project with three processes

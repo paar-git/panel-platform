@@ -18,10 +18,8 @@ pub mod detection;
 pub mod env_vars;
 pub mod names;
 pub mod ports;
-pub mod templates;
 
 pub use detection::{detect, Detection, PackageManager, Runtime};
 pub use env_vars::{EnvVar, EnvVarError, EnvVarView, ParsedDotenv};
 pub use names::{sanitise_display_name, Slug};
 pub use ports::{PortError, PortPool};
-pub use templates::{TemplateError, TemplateManifest, TemplateRegistry};

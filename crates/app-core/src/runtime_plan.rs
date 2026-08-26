@@ -15,16 +15,20 @@
 use std::path::Path;
 
 use project_host_api_types::ProjectType;
-use project_host_database::projects::RuntimeSpec;
+use project_host_database::projects::{NewProcess, RuntimeSpec};
 use project_host_project_manager::detection::{self, Detection, Runtime};
 
 /// What to build, and what we are basing that on.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuntimePlan {
     pub spec: RuntimeSpec,
-    /// The port the container listens on. Not part of `RuntimeSpec` because a
+    /// What the project runs. One process for every runtime this build plans
+    /// for; detecting a genuine multi-process project is a later change
+    /// against a data model that, after this one, exists.
+    pub processes: Vec<NewProcess>,
+    /// The port the project listens on. Not part of `RuntimeSpec` because a
     /// port is a network fact, not a runtime one.
-    pub container_port: i64,
+    pub port: i64,
     /// True when the runtime came from looking at the files rather than from the
     /// user naming it.
     pub detected: bool,
@@ -68,10 +72,11 @@ pub fn plan_named(runtime: &str) -> Result<RuntimePlan, PlanError> {
         .find(|candidate| candidate.as_str() == runtime)
         .ok_or_else(|| PlanError::UnknownRuntime(runtime.to_string()))?;
 
-    let (spec, port) = defaults_for(runtime);
+    let (spec, process, port) = defaults_for(runtime);
     Ok(RuntimePlan {
         spec,
-        container_port: port,
+        processes: vec![process],
+        port,
         detected: false,
         project_type: project_type_for(runtime),
         languages: vec![runtime.display_name().to_string()],
@@ -115,12 +120,13 @@ pub fn plan_detected(
         return Err(PlanError::Undetermined(error.message.clone()));
     }
 
-    let (mut spec, port) = defaults_for(detection.runtime);
-    apply(&mut spec, &detection);
+    let (mut spec, mut process, port) = defaults_for(detection.runtime);
+    apply(&mut spec, &mut process, &detection);
 
     Ok(RuntimePlan {
         spec,
-        container_port: port,
+        processes: vec![process],
+        port,
         detected: true,
         project_type: project_type_for(detection.runtime),
         languages,
@@ -133,13 +139,13 @@ pub fn plan_detected(
 /// Only fields detection has real evidence for. A suggested start command found
 /// in `package.json` beats the default; a `None` leaves the default alone rather
 /// than blanking a value the template needs.
-fn apply(spec: &mut RuntimeSpec, detection: &Detection) {
+fn apply(spec: &mut RuntimeSpec, process: &mut NewProcess, detection: &Detection) {
     spec.package_manager = detection.package_manager.as_str().to_string();
 
     if let Some(start) = &detection.suggested_start {
         // A bare script name means "run it with the package manager"; anything
         // with a space is already a command.
-        spec.start_command = if detection.scripts.contains_key(start) {
+        process.command = if detection.scripts.contains_key(start) {
             run_script(&spec.package_manager, start)
         } else {
             start.clone()
@@ -147,7 +153,7 @@ fn apply(spec: &mut RuntimeSpec, detection: &Detection) {
     }
 
     if let Some(build) = &detection.suggested_build_command {
-        spec.build_command = Some(if detection.scripts.contains_key(build) {
+        process.build_command = Some(if detection.scripts.contains_key(build) {
             run_script(&spec.package_manager, build)
         } else {
             build.clone()
@@ -165,7 +171,7 @@ fn apply(spec: &mut RuntimeSpec, detection: &Detection) {
     // pinned its dependencies: `npm ci` requires a lockfile and fails without
     // one, which is a confusing first build for someone who just cloned a
     // repository that has none.
-    spec.install_command = install_command(&spec.package_manager, detection.has_lockfile);
+    process.install_command = install_command(&spec.package_manager, detection.has_lockfile);
 }
 
 /// `<manager> run <script>`, built from parts rather than concatenated from user
@@ -216,7 +222,7 @@ fn install_command(manager: &str, has_lockfile: bool) -> Option<String> {
 /// Every value is a constant in this file. None of it comes from the project
 /// being built, which is what keeps a hostile repository from choosing the
 /// command that runs it.
-fn defaults_for(runtime: Runtime) -> (RuntimeSpec, i64) {
+fn defaults_for(runtime: Runtime) -> (RuntimeSpec, NewProcess, i64) {
     // (version, manager, install, build, start, entry, publish, port)
     let (version, manager, install, build, start, entry, publish, port) = match runtime {
         Runtime::NodeJs => (
@@ -323,38 +329,48 @@ fn defaults_for(runtime: Runtime) -> (RuntimeSpec, i64) {
             "8.0",
             "NUGET",
             Some("dotnet restore"),
-            Some("dotnet publish -c Release -o /app/publish"),
-            "dotnet /app/publish/app.dll",
+            Some("dotnet publish -c Release -o publish"),
+            "dotnet publish/app.dll",
             None,
             None,
             8080,
         ),
-        Runtime::Static => ("1", "NONE", None, None, "caddy", None, Some("public"), 80),
+        // The start command is never run for a static site: this application
+        // serves it. The value is what the interface shows, so it says what
+        // actually happens rather than naming a web server nobody installed.
+        Runtime::Static => (
+            "1",
+            "NONE",
+            None,
+            None,
+            "serve the published directory",
+            None,
+            Some("public"),
+            8080,
+        ),
         // No install and no start: a polyglot image cannot guess which of several
         // toolchains owns the project, so both come from detection or the user.
-        Runtime::Polyglot => ("1", "NONE", None, None, "/app/start.sh", None, None, 8080),
+        Runtime::Polyglot => ("1", "NONE", None, None, "./start.sh", None, None, 8080),
     };
 
     let spec = RuntimeSpec {
         runtime: runtime.as_str().to_string(),
         runtime_version: version.to_string(),
         package_manager: manager.to_string(),
-        install_command: install.map(str::to_string),
-        build_command: build.map(str::to_string),
-        start_command: start.to_string(),
-        working_dir: "/app".to_string(),
         entry_file: entry.map(str::to_string),
         publish_dir: publish.map(str::to_string),
         template_id: runtime.as_str().to_ascii_lowercase(),
-        health_check_type: "NONE".to_string(),
-        health_check_target: None,
-        health_interval_s: 30,
-        health_timeout_s: 5,
-        health_retries: 3,
-        health_start_period_s: 20,
     };
 
-    (spec, port)
+    // One process, named `main`. Every runtime this build plans for is a
+    // single-process project until somebody says otherwise, and `main` is the
+    // name migration 0009 gave every project that existed before processes
+    // did — so a planned project and an upgraded one look the same.
+    let mut process = NewProcess::simple("main", 0, start);
+    process.install_command = install.map(str::to_string);
+    process.build_command = build.map(str::to_string);
+
+    (spec, process, port)
 }
 
 #[cfg(test)]
@@ -381,10 +397,10 @@ mod tests {
             let plan = plan_named(wire).unwrap_or_else(|error| panic!("{wire}: {error}"));
             assert_eq!(plan.spec.runtime, wire);
             assert!(
-                !plan.spec.start_command.is_empty(),
+                !plan.processes[0].command.is_empty(),
                 "{wire} has no start command"
             );
-            assert!(plan.container_port > 0, "{wire} has no port");
+            assert!(plan.port > 0, "{wire} has no port");
             assert!(!plan.detected, "a named runtime is not a detected one");
         }
     }
@@ -410,10 +426,10 @@ mod tests {
         assert_eq!(plan.spec.runtime, "GO");
         assert_eq!(plan.languages, vec!["Go".to_string()]);
         assert_eq!(
-            plan.spec.build_command.as_deref(),
+            plan.processes[0].build_command.as_deref(),
             Some("go build -o /app/server ./...")
         );
-        assert_eq!(plan.spec.start_command, "/app/server");
+        assert_eq!(plan.processes[0].command, "/app/server");
     }
 
     #[test]
@@ -428,8 +444,8 @@ mod tests {
 
         assert_eq!(plan.spec.runtime, "NODEJS");
         assert_eq!(plan.spec.package_manager, "NPM");
-        assert_eq!(plan.spec.start_command, "npm run start");
-        assert_eq!(plan.spec.install_command.as_deref(), Some("npm ci"));
+        assert_eq!(plan.processes[0].command, "npm run start");
+        assert_eq!(plan.processes[0].install_command.as_deref(), Some("npm ci"));
     }
 
     #[test]
@@ -438,7 +454,10 @@ mod tests {
         // first build for someone who just cloned a repository that has none.
         let dir = project(&[("package.json", r#"{"scripts":{"start":"node s.js"}}"#)]);
         let plan = plan_detected(dir.path(), None).expect("planned");
-        assert_eq!(plan.spec.install_command.as_deref(), Some("pnpm install"));
+        assert_eq!(
+            plan.processes[0].install_command.as_deref(),
+            Some("pnpm install")
+        );
     }
 
     #[test]
@@ -517,7 +536,7 @@ mod tests {
         )]);
         let plan = plan_detected(dir.path(), None).expect("planned");
         assert_eq!(
-            plan.spec.start_command, "pnpm run start",
+            plan.processes[0].command, "pnpm run start",
             "the script's contents must not become the command"
         );
     }

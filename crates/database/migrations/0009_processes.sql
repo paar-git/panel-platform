@@ -255,3 +255,13 @@ ALTER TABLE project_ports_rebuilt RENAME TO project_ports;
 
 CREATE INDEX idx_ports_project ON project_ports (project_id);
 CREATE INDEX idx_ports_process ON project_ports (process_id);
+
+-- ---------------------------------------------------------- agent_state
+
+-- The heartbeat recorded whether the daemon answered. There is no daemon, and
+-- a column that can only ever hold one value is worse than no column: it
+-- invites a reader to believe it means something.
+--
+-- A plain DROP COLUMN rather than a rebuild: nothing references it, it carries
+-- no constraint, and SQLite has supported this since 3.35.
+ALTER TABLE agent_state DROP COLUMN docker_available;

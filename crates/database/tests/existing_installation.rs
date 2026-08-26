@@ -148,7 +148,11 @@ async fn an_older_installation_upgrades_without_losing_anything() {
     let processes = project_host_database::projects::list_processes(&database, &project)
         .await
         .expect("query");
-    assert_eq!(processes.len(), 1, "the upgrade should make exactly one process");
+    assert_eq!(
+        processes.len(),
+        1,
+        "the upgrade should make exactly one process"
+    );
     assert_eq!(processes[0].name, "main");
     assert_eq!(processes[0].command, "node index.js");
     assert_eq!(

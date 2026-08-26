@@ -7,7 +7,6 @@ members = [
     "crates/toolchain",
     "crates/security",
     "crates/database",
-    "crates/docker-manager",
     "crates/file-manager",
     "crates/project-manager",
     "crates/host-runner",

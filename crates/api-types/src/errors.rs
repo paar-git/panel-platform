@@ -4,7 +4,7 @@
 //! separation is what lets the message be rewritten for clarity — or
 //! translated — without breaking behaviour that depends on the outcome.
 //!
-//! Technical detail (the underlying Docker error, the failing path, the SQL
+//! Technical detail (the underlying error, the failing path, the SQL
 //! state) is written to the agent log keyed by request id, and never returned.
 //! `docs/security.md` §4 explains why: telling a caller precisely which
 //! validation rule caught them is free reconnaissance.
@@ -49,7 +49,6 @@ macro_rules! error_codes {
                 matches!(
                     self,
                     ErrorCode::RateLimited
-                        | ErrorCode::DockerUnavailable
                         | ErrorCode::AgentStarting
                         | ErrorCode::OperationInProgress
                         | ErrorCode::ProjectLocked
@@ -90,8 +89,6 @@ error_codes! {
     PreconditionFailed    => "PRECONDITION_FAILED",     412, "State precondition not met, e.g. restore on a running project.";
     PayloadTooLarge       => "PAYLOAD_TOO_LARGE",       413, "Upload exceeds the configured limit.";
     RateLimited           => "RATE_LIMITED",            429, "Too many requests.";
-    DockerUnavailable     => "DOCKER_UNAVAILABLE",      503, "The Docker daemon is unreachable.";
-    DockerOperationFailed => "DOCKER_OPERATION_FAILED", 502, "Docker is reachable but the operation failed.";
     PortUnavailable       => "PORT_UNAVAILABLE",        409, "Requested host port is taken or out of range.";
     ResourceLimitExceeded => "RESOURCE_LIMIT_EXCEEDED", 409, "A configured ceiling would be exceeded.";
     ArchiveRejected       => "ARCHIVE_REJECTED",        422, "The archive failed a security check.";
@@ -186,7 +183,6 @@ mod tests {
     #[test]
     fn only_transient_conditions_are_retryable() {
         assert!(ErrorCode::RateLimited.is_retryable());
-        assert!(ErrorCode::DockerUnavailable.is_retryable());
         // Retrying these can never succeed without the caller changing something.
         assert!(!ErrorCode::ValidationFailed.is_retryable());
         assert!(!ErrorCode::Forbidden.is_retryable());

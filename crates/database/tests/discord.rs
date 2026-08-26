@@ -15,7 +15,7 @@
 
 use project_host_api_types::ProjectType;
 use project_host_database::discord::{self, BotCredentials, NewChannels, NewGuildLink};
-use project_host_database::projects::{self, NewProcess, NewPort, NewProject, RuntimeSpec};
+use project_host_database::projects::{self, NewPort, NewProcess, NewProject, RuntimeSpec};
 use project_host_database::{schema_parity, Database, DISCORD_MIGRATION};
 use project_host_discord::{ChannelKind, EventKind, Permission};
 

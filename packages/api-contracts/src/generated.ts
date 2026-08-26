@@ -8,7 +8,7 @@
 
 import { z } from 'zod';
 
-export const errorCodeSchema = z.union([z.literal('VALIDATION_FAILED'), z.literal('UNAUTHENTICATED'), z.literal('SESSION_EXPIRED'), z.literal('FORBIDDEN'), z.literal('NOT_FOUND'), z.literal('CONFLICT'), z.literal('PROJECT_LOCKED'), z.literal('OPERATION_IN_PROGRESS'), z.literal('PRECONDITION_FAILED'), z.literal('PAYLOAD_TOO_LARGE'), z.literal('RATE_LIMITED'), z.literal('DOCKER_UNAVAILABLE'), z.literal('DOCKER_OPERATION_FAILED'), z.literal('PORT_UNAVAILABLE'), z.literal('RESOURCE_LIMIT_EXCEEDED'), z.literal('ARCHIVE_REJECTED'), z.literal('PATH_REJECTED'), z.literal('INTEGRITY_CHECK_FAILED'), z.literal('SETUP_REQUIRED'), z.literal('AGENT_STARTING'), z.literal('INTERNAL')]);
+export const errorCodeSchema = z.union([z.literal('VALIDATION_FAILED'), z.literal('UNAUTHENTICATED'), z.literal('SESSION_EXPIRED'), z.literal('FORBIDDEN'), z.literal('NOT_FOUND'), z.literal('CONFLICT'), z.literal('PROJECT_LOCKED'), z.literal('OPERATION_IN_PROGRESS'), z.literal('PRECONDITION_FAILED'), z.literal('PAYLOAD_TOO_LARGE'), z.literal('RATE_LIMITED'), z.literal('PORT_UNAVAILABLE'), z.literal('RESOURCE_LIMIT_EXCEEDED'), z.literal('ARCHIVE_REJECTED'), z.literal('PATH_REJECTED'), z.literal('INTEGRITY_CHECK_FAILED'), z.literal('SETUP_REQUIRED'), z.literal('AGENT_STARTING'), z.literal('INTERNAL')]);
 
 export const fieldErrorSchema = z.object({
   field: z.string(),
@@ -69,7 +69,6 @@ export const backupSummarySchema = z.object({
 export const connectivitySchema = z.object({
   agent: availabilitySchema,
   checked_at: z.string(),
-  docker: availabilitySchema,
   internet: availabilitySchema,
   lan: availabilitySchema,
 });
@@ -93,10 +92,10 @@ export const envVarInputSchema = z.object({
 export const networkModeSchema = z.enum(['NONE', 'INTERNAL', 'LAN', 'INTERNET']);
 
 export const portRequestSchema = z.object({
-  container_port: z.number().int(),
   expose_to_lan: z.boolean().optional(),
   host_port: z.number().int().nullable().optional(),
   is_primary: z.boolean().optional(),
+  port: z.number().int(),
 });
 
 export const networkConfigRequestSchema = z.object({
@@ -200,15 +199,6 @@ export const deploymentSummarySchema = z.object({
 
 export const desiredStateSchema = z.enum(['RUNNING', 'STOPPED', 'ARCHIVED']);
 
-export const dockerStatusSchema = z.object({
-  api_version: z.string().nullable().optional(),
-  available: z.boolean(),
-  containers_running: z.number().int().nullable().optional(),
-  endpoint_kind: z.string().nullable().optional(),
-  install_hint: z.string().nullable().optional(),
-  version: z.string().nullable().optional(),
-});
-
 export const envVarIdSchema = z.string();
 
 export const envVarSummarySchema = z.object({
@@ -276,10 +266,10 @@ export const portIdSchema = z.string();
 
 export const portMappingSchema = z.object({
   bind_address: z.string(),
-  container_port: z.number().int(),
   host_port: z.number().int().nullable().optional(),
   id: portIdSchema,
   is_primary: z.boolean(),
+  port: z.number().int(),
   protocol: z.string(),
 });
 

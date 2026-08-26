@@ -344,10 +344,9 @@ pub async fn record_clean_shutdown(database: &Database) -> Result<()> {
     Ok(())
 }
 
-pub async fn record_heartbeat(database: &Database, docker_available: bool) -> Result<()> {
-    sqlx::query("UPDATE agent_state SET last_heartbeat_at = ?, docker_available = ? WHERE id = 1")
+pub async fn record_heartbeat(database: &Database) -> Result<()> {
+    sqlx::query("UPDATE agent_state SET last_heartbeat_at = ? WHERE id = 1")
         .bind(time::now())
-        .bind(i64::from(docker_available))
         .execute(database.pool())
         .await?;
     Ok(())

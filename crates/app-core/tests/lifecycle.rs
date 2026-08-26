@@ -1,7 +1,7 @@
 //! The real startup and shutdown path, against a real database on disk.
 //!
 //! Not mocked and not in memory: this creates the directory layout, runs the
-//! migrations, performs crash recovery, probes Docker and closes the pool, in
+//! migrations, performs crash recovery and closes the pool, in
 //! the same order and by the same code the application will use. It is the
 //! closest thing to "does it work" that exists while there is no window to
 //! open, and it covers the paths that are hardest to exercise by hand — an
@@ -14,13 +14,8 @@
     clippy::indexing_slicing
 )]
 
-use std::sync::Arc;
-use std::time::Duration;
-
 use project_host_core::{resolve_paths, AppConfig, Mode, Runtime};
 use project_host_database::SUPPORTED_SCHEMA_VERSION;
-use project_host_docker_manager::DockerProbe;
-use project_host_docker_manager::DockerStatus;
 use project_host_platform::PathProvider;
 
 fn config_rooted_at(root: &std::path::Path) -> AppConfig {
@@ -55,43 +50,6 @@ async fn a_cold_start_creates_everything_it_needs() {
         !runtime.state().inner().instance_id.is_empty(),
         "the run should be identifiable in the logs"
     );
-
-    runtime.shutdown().await;
-}
-
-#[tokio::test]
-async fn docker_is_probed_at_startup_and_its_absence_is_not_fatal() {
-    // The rule from the design: an application that refuses to start without
-    // Docker cannot tell the user why Docker is missing. The probe is deferred
-    // until after the window would open, so this asserts both that start did
-    // not wait for it and that the later pass produced a description.
-    let directory = tempfile::tempdir().expect("temp dir");
-    let config = config_rooted_at(directory.path());
-    let paths = resolve_paths(&config).expect("paths");
-
-    let runtime = Runtime::start(config, paths).await.expect("start");
-    assert!(
-        runtime.state().docker_status().await.is_unchecked(),
-        "Docker must not sit on the path that opens the window"
-    );
-
-    runtime.complete_optional_startup().await;
-    let status = runtime.state().docker_status().await;
-
-    assert!(
-        !status.summary().is_empty(),
-        "the probe should describe what it found either way"
-    );
-    assert!(
-        !status.is_unchecked(),
-        "optional startup should have asked Docker by now"
-    );
-    if !status.available {
-        assert!(
-            status.install_hint.is_some() || status.error.is_some(),
-            "an absent daemon must come with a reason or a hint, not silence"
-        );
-    }
 
     runtime.shutdown().await;
 }
@@ -199,52 +157,6 @@ async fn a_refused_configuration_never_reaches_startup() {
     assert!(config.validate().is_err(), "an empty port pool is unusable");
 }
 
-/// A Docker probe that never returns. Stands in for a named pipe that exists
-/// while Docker Desktop is still booting after a reboot — the case that used
-/// to make clicking the app do nothing.
-#[derive(Debug)]
-struct HungDocker;
-
-#[async_trait::async_trait]
-impl DockerProbe for HungDocker {
-    async fn probe(&self) -> DockerStatus {
-        std::future::pending().await
-    }
-}
-
-#[tokio::test]
-async fn start_does_not_wait_for_a_hung_docker_probe() {
-    let directory = tempfile::tempdir().expect("temp dir");
-    let config = config_rooted_at(directory.path());
-    let paths = resolve_paths(&config).expect("paths");
-
-    let started = tokio::time::Instant::now();
-    let result = tokio::time::timeout(
-        Duration::from_secs(2),
-        Runtime::start_with_probe(config, paths, Arc::new(HungDocker)),
-    )
-    .await;
-
-    let runtime = match result {
-        Ok(Ok(runtime)) => runtime,
-        Ok(Err(error)) => panic!("start failed: {error}"),
-        Err(_) => panic!("startup waited for a Docker probe that never returned"),
-    };
-
-    assert!(
-        started.elapsed() < Duration::from_secs(2),
-        "startup took {:?}",
-        started.elapsed()
-    );
-    let status = runtime.state().docker_status().await;
-    assert!(
-        status.is_unchecked() || !status.available,
-        "a hung probe must not be reported as a working daemon"
-    );
-
-    runtime.shutdown().await;
-}
-
 #[tokio::test]
 async fn startup_records_which_stages_ran_and_how_long_they_took() {
     let directory = tempfile::tempdir().expect("temp dir");
@@ -311,39 +223,6 @@ async fn optional_startup_does_not_run_a_machine_scan() {
     assert!(
         !names.contains(&"machine_scan"),
         "the launch path still ran a PowerShell machine scan: {names:?}"
-    );
-
-    runtime.shutdown().await;
-}
-
-#[tokio::test]
-async fn optional_startup_survives_a_hung_docker_probe() {
-    let directory = tempfile::tempdir().expect("temp dir");
-    let config = config_rooted_at(directory.path());
-    let paths = resolve_paths(&config).expect("paths");
-    let runtime = tokio::time::timeout(
-        Duration::from_secs(2),
-        Runtime::start_with_probe(config, paths, Arc::new(HungDocker)),
-    )
-    .await
-    .expect("start waited for Docker")
-    .expect("start");
-
-    let result =
-        tokio::time::timeout(Duration::from_secs(12), runtime.complete_optional_startup()).await;
-    assert!(
-        result.is_ok(),
-        "optional startup did not give up on a hung Docker probe"
-    );
-
-    let status = runtime.state().docker_status().await;
-    assert!(
-        !status.available,
-        "a probe that never answered must not look like a working daemon"
-    );
-    assert!(
-        status.install_hint.is_some() || status.error.is_some(),
-        "the user needs a reason, not a permanent 'checking' state"
     );
 
     runtime.shutdown().await;
