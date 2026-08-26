@@ -31,6 +31,9 @@ import {
   type DeploymentSummary,
   type ProjectDetail as Detail,
   type ProjectSummary,
+  type ProcessSummary,
+  listProjectProcesses,
+  restartProjectProcess,
 } from '../api';
 import {
   baseName,
@@ -44,6 +47,7 @@ import {
 import { runtimeLabel } from '../lib/projectList';
 import { describeAction, healthLook, isRunning, runControls, statusLook } from '../lib/projects';
 import { isDeclined, useToolchainGate } from '../components/useToolchainGate';
+import { ProcessList } from '../components/ProcessList';
 import ProjectMark from '../ui/ProjectMark';
 import Icon from '../ui/Icon';
 import { ConfirmDialog } from '../ui/overlays';
@@ -319,8 +323,40 @@ function Overview({
   onOpenFiles: () => void;
   onReveal: () => void;
 }) {
+  const [processes, setProcesses] = useState<ProcessSummary[]>([]);
+
+  const loadProcesses = useCallback(() => {
+    void listProjectProcesses(detail.id)
+      .then(setProcesses)
+      // A project that cannot list its processes still has a page worth
+      // showing; the list renders its own empty state.
+      .catch(() => setProcesses([]));
+  }, [detail.id]);
+
+  // Re-read on every status change, which is when a process status can have
+  // moved. The page already polls status; this rides on it rather than adding
+  // a second timer.
+  useEffect(loadProcesses, [loadProcesses, detail.status]);
+
   return (
     <div className="grid gap-4 lg:grid-cols-2">
+      <Card>
+        <CardHeader title="Processes" />
+        <ProcessList
+          projectId={detail.id}
+          processes={processes}
+          onRestart={async (name) => {
+            try {
+              await restartProjectProcess(detail.id, name);
+              toast.success(`Restarted ${name}`);
+            } catch (error) {
+              toast.error(`Could not restart ${name}`, errorMessage(error));
+            }
+            loadProcesses();
+          }}
+        />
+      </Card>
+
       <Card>
         <CardHeader title="State" />
         <div className="px-4 py-1">

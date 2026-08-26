@@ -1255,6 +1255,67 @@ async fn project_console(
     })
 }
 
+// ----------------------------------------------------------- project processes
+
+/// Every process of a project, in start order, with the port each listens on.
+#[tauri::command]
+async fn list_project_processes(
+    state: tauri::State<'_, AppState>,
+    project_id: String,
+) -> CommandResult<Vec<ProcessSummary>> {
+    let app: &AppState = &state;
+    let processes = projects::list_processes(app.database(), &project_id).await?;
+    let ports = projects::list_ports(app.database(), &project_id).await?;
+
+    Ok(processes
+        .into_iter()
+        .map(|process| {
+            let port = ports
+                .iter()
+                .find(|port| port.process_id.as_deref() == Some(process.id.as_str()))
+                .and_then(|port| port.host_port);
+
+            ProcessSummary {
+                id: process.id,
+                name: process.name,
+                start_order: process.start_order,
+                command: process.command,
+                working_dir: process.working_dir,
+                install_command: process.install_command,
+                build_command: process.build_command,
+                status: process.status,
+                port,
+                exit_code: process.exit_code,
+                failure_reason: process.failure_reason,
+                restart_count: process.restart_count,
+            }
+        })
+        .collect())
+}
+
+/// Restart one process, leaving its siblings alone.
+///
+/// Deliberately not "restart the project": the user pointed at one process,
+/// and the others keep their pids. A project-wide restart is `restart_project`.
+#[tauri::command]
+async fn restart_project_process(
+    state: tauri::State<'_, AppState>,
+    project_id: String,
+    process_name: String,
+) -> CommandResult<()> {
+    let app: &AppState = &state;
+    let record = projects::find_project(app.database(), &project_id)
+        .await?
+        .ok_or_else(|| CommandError {
+            message: "No project with that id.".to_string(),
+        })?;
+
+    project_host_core::lifecycle::orchestrator_for(app)
+        .restart_process(&record, &process_name)
+        .await?;
+    Ok(())
+}
+
 // -------------------------------------------------------------- project files
 
 /// One row in a directory listing, as the window reads it.
@@ -3116,6 +3177,8 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             restart_project,
             kill_project,
             host_projects_running,
+            list_project_processes,
+            restart_project_process,
             machine_load,
             power_status,
             set_power_mode,

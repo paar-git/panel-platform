@@ -480,6 +480,35 @@ export async function killProject(projectId: string): Promise<void> {
   return invoke('kill_project', { projectId });
 }
 
+// ---------------------------------------------------------- project processes
+
+/** One process of a project, as the window shows it. */
+export interface ProcessSummary {
+  id: string;
+  name: string;
+  startOrder: number;
+  command: string;
+  workingDir: string;
+  installCommand: string | null;
+  buildCommand: string | null;
+  status: string;
+  /** The port this process listens on, when it has one. */
+  port: number | null;
+  exitCode: number | null;
+  /** Why it stopped, when it did not stop cleanly. */
+  failureReason: string | null;
+  restartCount: number;
+}
+
+export async function listProjectProcesses(projectId: string): Promise<ProcessSummary[]> {
+  return invoke('list_project_processes', { projectId });
+}
+
+/** Restart one process. Its siblings keep their pids. */
+export async function restartProjectProcess(projectId: string, processName: string): Promise<void> {
+  return invoke('restart_project_process', { projectId, processName });
+}
+
 // ------------------------------------------------------------- project files
 
 export interface FileEntry {
