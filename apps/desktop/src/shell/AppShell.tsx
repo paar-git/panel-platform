@@ -146,7 +146,6 @@ export default function AppShell({
         status={status}
         projects={projects}
         project={project}
-        dockerAvailable={status?.dockerAvailable ?? false}
         busy={busy}
         updateAvailable={updateAvailable}
         onOpenPalette={onOpenPalette}

@@ -311,7 +311,7 @@ export default function App() {
   const commands = useMemo<Command[]>(() => {
     const target = project ?? null;
     // The same decision the Start button makes, from the same function. The
-    // palette used to test `dockerAvailable` on its own, which disabled Start
+    // palette used to test `` on its own, which disabled Start
     // for host projects on a machine with no Docker — every project, now that
     // HOST is the default — while the button beside it worked. `busy` is false
     // because the palette tracks no in-flight action of its own; a project
@@ -321,7 +321,6 @@ export default function App() {
         ? { blocked: true, reason: undefined }
         : runControls(target, {
             busy: false,
-            dockerAvailable: status?.dockerAvailable ?? false,
           });
     return [
       {
@@ -424,7 +423,6 @@ export default function App() {
     preferences.collapsedSidebar,
     project,
     refresh,
-    status?.dockerAvailable,
   ]);
 
   // The shortcuts that belong to the shell. The editor registers its own while
@@ -467,7 +465,6 @@ export default function App() {
           key={project.id}
           project={project}
           status={status}
-          dockerAvailable={status?.dockerAvailable ?? false}
           onRefreshProjects={refresh}
           onLeave={() => setEditing(false)}
           onOpenSettings={() => {
@@ -531,7 +528,6 @@ export default function App() {
               <ProjectDetail
                 key={project.id}
                 project={project}
-                dockerAvailable={status?.dockerAvailable ?? false}
                 developerMode={preferences.developerMode}
                 onRefreshProjects={refresh}
                 onBack={() => setOpenProject(null)}
@@ -581,7 +577,6 @@ export default function App() {
               )}
               <Projects
                 projects={projects}
-                dockerAvailable={status?.dockerAvailable ?? false}
                 onRefresh={refresh}
                 onOpen={openProjectById}
                 onNewProject={() => setCreating(true)}

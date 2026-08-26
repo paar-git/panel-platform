@@ -17,10 +17,7 @@ import {
   errorMessage,
   setProjectPower,
   type ProjectPriority,
-  HOST_MODE_TRADE,
-  isHostMode,
   killProject,
-  setProjectRunMode,
   projectDeployments,
   projectDetails,
   projectEvents,
@@ -78,14 +75,12 @@ type TabId =
 
 export default function ProjectDetail({
   project,
-  dockerAvailable,
   developerMode = false,
   onRefreshProjects,
   onBack,
   onOpenFiles,
 }: {
   project: ProjectSummary;
-  dockerAvailable: boolean;
   /** Shows the internal identifiers a bug report needs. */
   developerMode?: boolean;
   onRefreshProjects: () => Promise<void>;
@@ -131,7 +126,7 @@ export default function ProjectDetail({
 
   const look = statusLook(project.status);
   const running = isRunning(project.status);
-  const { blocked, reason: blockedReason } = runControls(project, { busy, dockerAvailable });
+  const { blocked, reason: blockedReason } = runControls(project, { busy });
 
   async function act(verb: string, action: (id: string) => Promise<unknown>) {
     setBusy(true);
@@ -174,14 +169,6 @@ export default function ProjectDetail({
               <Badge tone={look.tone} dot>
                 {look.label}
               </Badge>
-              {isHostMode(project) && (
-                <Badge
-                  tone="warn"
-                  title="Runs as a process on this machine, without a container's isolation"
-                >
-                  host
-                </Badge>
-              )}
               {detail && detail.health.toUpperCase() !== 'NONE' && (
                 <Badge tone={healthLook(detail.health).tone}>
                   {healthLook(detail.health).label}
@@ -374,7 +361,6 @@ function Overview({
           ) : (
             <DataRow label="Runtime" value="not recorded" />
           )}
-          <DataRow label="Run mode" value={detail.runMode.toLowerCase()} />
         </div>
       </Card>
 
@@ -769,7 +755,8 @@ function PowerCard({
   // carries the summary the list was drawn from, which can be a poll behind.
   const priority = (detail.priority ?? 'NORMAL') as ProjectPriority;
   const keepAwake = detail.keepAwake ?? false;
-  const host = detail.runMode === 'HOST';
+  // Every project runs on this machine now.
+  const host = true;
 
   async function apply(changes: { priority?: ProjectPriority; keepAwake?: boolean }) {
     setBusy(true);
@@ -836,79 +823,7 @@ function PowerCard({
 
 // ------------------------------------------------------------------ settings
 
-/**
- * Choosing between a container and a process, and saying what that costs.
- *
- * Switching *to* host mode is confirmed every time, because it is the direction
- * that gives something up. Nothing extra is stored to remember the
- * confirmation: accepting is what performs the switch, so a project already in
- * host mode is never asked again, and switching back and forth asks each time
- * it is switched to.
- */
-function RunModeCard({ detail, onChanged }: { detail: Detail; onChanged: () => void }) {
-  const [busy, setBusy] = useState(false);
-  const [confirming, setConfirming] = useState(false);
-  const host = detail.runMode === 'HOST';
-  const running = isRunning(detail.status);
-
-  async function apply(mode: string) {
-    setBusy(true);
-    try {
-      await setProjectRunMode(detail.id, mode);
-      setConfirming(false);
-      onChanged();
-      toast.success(mode === 'HOST' ? 'Now runs on this machine' : 'Now runs in a container');
-    } catch (error) {
-      toast.error('Could not change the run mode', errorMessage(error));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <Card>
-      <CardHeader title="Run mode" />
-      <div className="space-y-3 px-4 py-3">
-        <p className="text-[13px] text-muted">
-          {host
-            ? 'This project runs as a process on this machine.'
-            : 'This project runs in a container.'}
-        </p>
-
-        {running ? (
-          <p className="text-[12px] text-muted">Stop the project to change how it runs.</p>
-        ) : host ? (
-          <Button size="sm" disabled={busy} onClick={() => void apply('DOCKER')}>
-            Run in a container instead
-          </Button>
-        ) : confirming ? (
-          <div className="space-y-3 rounded-lg border border-edge p-3">
-            <p className="text-[13px]">{HOST_MODE_TRADE}</p>
-            <div className="flex gap-2">
-              <Button size="sm" disabled={busy} onClick={() => void apply('HOST')}>
-                I understand — run it on this machine
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                disabled={busy}
-                onClick={() => setConfirming(false)}
-              >
-                Cancel
-              </Button>
-            </div>
-          </div>
-        ) : (
-          <Button size="sm" disabled={busy} onClick={() => setConfirming(true)}>
-            Run on this machine instead
-          </Button>
-        )}
-      </div>
-    </Card>
-  );
-}
-
-function Settings({ detail, onChanged }: { detail: Detail; onChanged: () => void }) {
+function Settings({ detail }: { detail: Detail; onChanged: () => void }) {
   return (
     <div className="grid gap-4 lg:grid-cols-2">
       <Card>
@@ -920,8 +835,6 @@ function Settings({ detail, onChanged }: { detail: Detail; onChanged: () => void
           <DataRow label="Identifier" value={detail.id} mono />
         </div>
       </Card>
-
-      <RunModeCard detail={detail} onChanged={onChanged} />
 
       <Card>
         <CardHeader title="Behaviour" />

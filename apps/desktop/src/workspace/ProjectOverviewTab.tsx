@@ -156,18 +156,6 @@ export default function ProjectOverviewTab({
       <Section label="Project directory">
         {detail === null ? <Plain text="—" /> : <Copyable text={detail.directory} mono />}
       </Section>
-
-      <Section label="Run mode">
-        <Plain
-          text={
-            detail === null
-              ? '—'
-              : detail.runMode === 'HOST'
-                ? 'Runs as a process on this machine.'
-                : 'Runs in a container.'
-          }
-        />
-      </Section>
     </div>
   );
 }

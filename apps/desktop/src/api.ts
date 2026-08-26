@@ -15,10 +15,6 @@ export interface SystemStatus {
   schemaVersion: number;
   uptimeSeconds: number;
   startedAt: string;
-  dockerAvailable: boolean;
-  dockerSummary: string;
-  dockerVersion: string | null;
-  dockerHint: string | null;
 }
 
 export interface ProjectSummary {
@@ -31,7 +27,6 @@ export interface ProjectSummary {
   desiredState: string;
   color: string | null;
   /** `DOCKER` or `HOST`. A host project runs as a process on this machine. */
-  runMode: string;
 }
 
 export interface AvailableUpdate {
@@ -51,7 +46,7 @@ export type UpdateCheck =
 
 /**
  * Rust serialises with snake_case field names; the window reads camelCase.
- * Converting once, here, beats spelling `docker_available` throughout the
+ * Converting once, here, beats spelling `desired_state` throughout the
  * components — and beats configuring serde to rename, which would change the
  * shape of every stored document too.
  */
@@ -123,10 +118,12 @@ export interface MachineLoad {
 export interface RunningProject {
   projectId: string;
   displayName: string;
-  runMode: string;
   memoryBytes: number;
   cpuPercent: number | null;
-  /** False for a Docker project, whose figure is its limit, not a reading. */
+  /**
+   * Whether the figure is a reading rather than the project's declared limit.
+   * True whenever the project is running here, which is whenever it runs.
+   */
   measured: boolean;
   /** RFC 3339. The window derives uptime, so it never shows a stale number. */
   startedAt: string | null;
@@ -241,24 +238,14 @@ export async function setProjectPower(
 }
 
 /**
- * Change how a project runs.
+ * What running a project on this machine means, said once.
  *
- * Refused while the project is up: switching substrate under a running project
- * would leave the old one running with nothing tracking it.
+ * Not a choice any more — it is how every project runs — but still worth
+ * stating, because it is what the user is agreeing to by pressing Run.
  */
-export async function setProjectRunMode(projectId: string, runMode: string): Promise<string> {
-  return invoke<string>('set_project_run_mode', { projectId, runMode });
-}
-
-/** What a project gives up by running outside a container. */
 export const HOST_MODE_TRADE =
-  'A host project runs as a process on this machine, with your files and your ' +
+  'A project runs as a process on this machine, with your files and your ' +
   'network and no resource limits, and it stops when Panel Platform quits.';
-
-/** Whether a project runs as a process on this machine rather than a container. */
-export function isHostMode(project: { runMode?: string }): boolean {
-  return project.runMode === 'HOST';
-}
 
 /**
  * How many host projects would stop if the window were closed now.
@@ -862,7 +849,6 @@ export interface ProjectDetail {
   status: string;
   desiredState: string;
   health: string;
-  runMode: string;
   /** Scheduling only, never a cap. */
   priority: ProjectPriority;
   /** Whether this project running holds automatic sleep off. */
@@ -939,7 +925,6 @@ export interface AppSettings {
   portPoolStart: number;
   portPoolEnd: number;
   portPoolSize: number;
-  dockerEnabled: boolean;
   dataDir: string;
   projectsDir: string;
   logsDir: string;

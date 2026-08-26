@@ -16,7 +16,6 @@ import type { CursorPosition } from './CodeEditor';
 export default function StatusBar({
   projectStatus,
   running,
-  dockerAvailable,
   errors,
   warnings,
   language,
@@ -29,7 +28,6 @@ export default function StatusBar({
 }: {
   projectStatus: string;
   running: boolean;
-  dockerAvailable: boolean;
   errors: number;
   warnings: number;
   /** Null with no file open. */
@@ -79,11 +77,6 @@ export default function StatusBar({
       {language && (
         <StatusText title="The language Monaco is highlighting this file as">{language}</StatusText>
       )}
-
-      <StatusText title={dockerAvailable ? 'Docker responded' : 'Docker did not respond'}>
-        <Icon name={dockerAvailable ? 'check' : 'blocked'} size={13} />
-        Docker
-      </StatusText>
     </footer>
   );
 }

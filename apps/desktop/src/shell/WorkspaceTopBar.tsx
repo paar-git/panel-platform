@@ -17,7 +17,6 @@ export default function WorkspaceTopBar({
   status,
   projects,
   project,
-  dockerAvailable,
   busy,
   updateAvailable,
   onOpenPalette,
@@ -34,7 +33,6 @@ export default function WorkspaceTopBar({
   status: SystemStatus | null;
   projects: ProjectSummary[] | null;
   project: ProjectSummary | null;
-  dockerAvailable: boolean;
   busy: boolean;
   updateAvailable: string | null;
   onOpenPalette: () => void;
@@ -96,7 +94,6 @@ export default function WorkspaceTopBar({
       <div className="flex shrink-0 items-center gap-1.5">
         <RunControl
           project={project}
-          dockerAvailable={dockerAvailable}
           busy={busy}
           onStart={onStart}
           onStop={onStop}

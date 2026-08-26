@@ -18,7 +18,6 @@ import Icon from '../ui/Icon';
 
 export default function RunControl({
   project,
-  dockerAvailable,
   busy,
   onStart,
   onStop,
@@ -27,7 +26,6 @@ export default function RunControl({
   onConfigure,
 }: {
   project: ProjectSummary | null;
-  dockerAvailable: boolean;
   /** True while an action this control started is still in flight. */
   busy: boolean;
   onStart: () => void;
@@ -60,7 +58,7 @@ export default function RunControl({
   if (project === null) return null;
 
   const action = primaryRunAction(project.status);
-  const gate = runControls(project, { busy, dockerAvailable });
+  const gate = runControls(project, { busy });
   const failed = action.tone === 'danger';
 
   // Disabled while the core is mid-transition or an action is in flight, which
