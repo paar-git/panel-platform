@@ -16,11 +16,11 @@ Record the result beside each item. An unrun scenario stays marked unrun — thi
 repository's convention is to say so out loud rather than leave it to be
 assumed.
 
-| Legend | Meaning |
-|---|---|
-| ☐ | not yet run |
-| ✅ | run, behaved as described |
-| ❌ | run, did not behave as described — file the defect and link it |
+| Legend | Meaning                                                        |
+| ------ | -------------------------------------------------------------- |
+| ☐      | not yet run                                                    |
+| ✅     | run, behaved as described                                      |
+| ❌     | run, did not behave as described — file the defect and link it |
 
 ---
 
@@ -150,7 +150,7 @@ still starts.
 
 > Covered by a unit test at the SQL level
 > (`an_existing_project_gains_one_process_and_keeps_its_port`). What that test
-> cannot show is that the upgraded project still *runs*, which is what this
+> cannot show is that the upgraded project still _runs_, which is what this
 > scenario adds.
 
 ## 12. Quitting stops everything ☐

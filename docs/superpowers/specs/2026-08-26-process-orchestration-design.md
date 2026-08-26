@@ -50,8 +50,8 @@ The alternative, a `DEGRADED` project that is partly up, makes "running" mean
 something the Run button cannot promise. No per-process `required` flag: one
 rule, no configuration.
 
-**Start is strictly sequential.** Process *n+1* spawns after *n* settles, or
-after *n* reports healthy when it has a health check. Concurrent start is a race
+**Start is strictly sequential.** Process _n+1_ spawns after _n_ settles, or
+after _n_ reports healthy when it has a health check. Concurrent start is a race
 the user would have to win by luck.
 
 ## Data model
@@ -134,14 +134,14 @@ without spawning anything.
 
 Aggregation:
 
-| Every process | Project |
-|---|---|
-| all running | `RUNNING` |
-| any still coming up, none failed | `STARTING` |
+| Every process                                            | Project      |
+| -------------------------------------------------------- | ------------ |
+| all running                                              | `RUNNING`    |
+| any still coming up, none failed                         | `STARTING`   |
 | one exited after having run, still within `MAX_RESTARTS` | `RESTARTING` |
-| one exited after having run, past `MAX_RESTARTS` | `CRASHED` |
-| one never started at all | `FAILED` |
-| all stopped | `STOPPED` |
+| one exited after having run, past `MAX_RESTARTS`         | `CRASHED`    |
+| one never started at all                                 | `FAILED`     |
+| all stopped                                              | `STOPPED`    |
 
 The first matching row wins, read top to bottom, so a project with one process
 restarting and another running is `RESTARTING` rather than `RUNNING`. Siblings
@@ -188,14 +188,14 @@ last to go.
 
 ## Failures
 
-| Case | Where it is caught | What the user sees |
-|---|---|---|
-| Port already held | Allocation, before any spawn | The port, and an offer to reallocate |
-| Missing runtime | Toolchain resolution | The runtime, and an install offer |
-| Install or build fails | Prepare | The failing command and its output |
-| Immediate exit | Supervisor settle window | The child's own stderr |
-| Crash loop | `MAX_RESTARTS`, `STABLE_RUN` reset | Which process, and its last output |
-| Stuck on stop | Grace period, then escalation | Which process refused to exit |
+| Case                   | Where it is caught                 | What the user sees                   |
+| ---------------------- | ---------------------------------- | ------------------------------------ |
+| Port already held      | Allocation, before any spawn       | The port, and an offer to reallocate |
+| Missing runtime        | Toolchain resolution               | The runtime, and an install offer    |
+| Install or build fails | Prepare                            | The failing command and its output   |
+| Immediate exit         | Supervisor settle window           | The child's own stderr               |
+| Crash loop             | `MAX_RESTARTS`, `STABLE_RUN` reset | Which process, and its last output   |
+| Stuck on stop          | Grace period, then escalation      | Which process refused to exit        |
 
 `kill_project` iterates processes in reverse order and escalates past the grace
 period using `crates/platform`'s process-group termination.
@@ -243,7 +243,7 @@ The checklist is `docs/superpowers/checklists/2026-08-26-process-orchestration.m
 **As implemented, none of its twelve scenarios has been run.** Every claim in
 this document about what happens when a process actually starts, crashes,
 refuses to stop, or takes its siblings down with it is therefore unverified on
-any machine. What *has* run: the whole Rust suite and the window's, both clean,
+any machine. What _has_ run: the whole Rust suite and the window's, both clean,
 including the state machine's rules, the prepare deduplication, and migration
 0009 against a database seeded with rows in the pre-0009 shape.
 

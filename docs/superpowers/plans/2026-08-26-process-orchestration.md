@@ -27,11 +27,13 @@
 ### Task 1: Migration 0009 — schema
 
 **Files:**
+
 - Create: `crates/database/migrations/0009_processes.sql`
 - Modify: `crates/database/src/lib.rs` (add the `include_str!` const beside `LOCAL_RUNTIME_MIGRATION` at line 70, and register it in the migration list)
 - Test: `crates/database/src/schema_parity.rs` (test module at the bottom)
 
 **Interfaces:**
+
 - Consumes: nothing.
 - Produces: tables `project_processes` (new), `project_runtimes` (narrowed), `project_ports` (`container_port` → `port`, plus `process_id`), `projects` (container columns and `run_mode` dropped). Const `PROCESSES_MIGRATION: &str`.
 
@@ -89,7 +91,7 @@ Expected: FAIL — `PROCESSES_MIGRATION` is not defined.
 
 - [ ] **Step 3: Write the migration**
 
-Create `crates/database/migrations/0009_processes.sql`. Open it with a comment block in the house style explaining *why* — see 0008's header for the register to match. Then:
+Create `crates/database/migrations/0009_processes.sql`. Open it with a comment block in the house style explaining _why_ — see 0008's header for the register to match. Then:
 
 ```sql
 CREATE TABLE project_processes (
@@ -175,10 +177,12 @@ git commit -m "Add project_processes and drop the container columns"
 ### Task 2: Process records and queries
 
 **Files:**
+
 - Modify: `crates/database/src/projects.rs`
 - Test: same file, existing `#[cfg(test)] mod tests`
 
 **Interfaces:**
+
 - Consumes: Task 1's tables.
 - Produces:
   - `pub struct ProcessRecord { id, project_id, name: String, start_order: i64, command: String, working_dir: String, install_command: Option<String>, build_command: Option<String>, health_check_type: String, health_check_target: Option<String>, health_interval_s: i64, health_timeout_s: i64, health_retries: i64, health_start_period_s: i64, status: String, pid: Option<i64>, exit_code: Option<i64>, failure_reason: Option<String>, started_at: Option<String>, restart_count: i64 }`
@@ -280,11 +284,13 @@ git commit -m "Read and write a project's process rows"
 ### Task 3: The orchestration state machine — ordering
 
 **Files:**
+
 - Create: `crates/host-runner/src/orchestration.rs`
 - Modify: `crates/host-runner/src/lib.rs` (declare `pub mod orchestration;` and re-export)
 - Test: inline `#[cfg(test)] mod tests` in the new file
 
 **Interfaces:**
+
 - Consumes: nothing. This module depends on no other crate and does no I/O — no tokio, no filesystem, no database, no clock. That is what makes it testable.
 - Produces:
 
@@ -423,10 +429,12 @@ git commit -m "Decide process start ordering without running anything"
 ### Task 4: The state machine — crashes, aggregation, reverse stop
 
 **Files:**
+
 - Modify: `crates/host-runner/src/orchestration.rs`
 - Test: same file
 
 **Interfaces:**
+
 - Consumes: Task 3's `Machine`, `Event`, `Action`, `ProcessState`, `ProjectStatus`.
 - Produces: no new types. `handle` now implements `Exited`, `StopRequested` and `PrepareFailed`.
 
@@ -564,12 +572,14 @@ git commit -m "Decide what a crash means when a project has several processes"
 ### Task 5: Prepare — deduplicated install and build
 
 **Files:**
+
 - Create: `crates/app-core/src/orchestrator/prepare.rs`
 - Create: `crates/app-core/src/orchestrator.rs` (module declaration only at this task)
 - Modify: `crates/app-core/src/lib.rs` (declare `pub mod orchestrator;`)
 - Test: inline in `prepare.rs`
 
 **Interfaces:**
+
 - Consumes: `projects::ProcessRecord` (Task 2).
 - Produces: `pub fn prepare_steps(processes: &[ProcessRecord]) -> Vec<PrepareStep>` where
 
@@ -667,12 +677,14 @@ git commit -m "Work out which install and build steps a project actually needs"
 ### Task 6: The driver — replace HostRunner
 
 **Files:**
+
 - Modify: `crates/app-core/src/orchestrator.rs` (the driver itself)
 - Delete: `crates/app-core/src/runner/host.rs` (its logic moves here)
 - Modify: `crates/app-core/src/lifecycle.rs:97-104` (`runner_for` disappears — see Task 7)
 - Test: inline in `orchestrator.rs`
 
 **Interfaces:**
+
 - Consumes: `orchestration::Machine` (Tasks 3–4), `prepare_steps` (Task 5), `projects::list_processes` / `set_process_status` (Task 2), and everything `runner/host.rs` already used: `resolve_toolchain`, `static_command`, `build_command`, `health_policy`, `translate`, `HostRegistry`.
 - Produces:
 
@@ -770,11 +782,13 @@ git commit -m "Run every one of a project's processes, in order"
 ### Task 7: Delete the Docker runner
 
 **Files:**
+
 - Delete: `crates/app-core/src/runner/docker.rs`, `crates/app-core/src/runner.rs`, `crates/app-core/src/images.rs`
 - Modify: `crates/app-core/src/lifecycle.rs`, `crates/app-core/src/lib.rs`, `crates/app-core/src/state.rs`, `crates/app-core/src/health.rs`, `crates/app-core/src/reconcile.rs`, `crates/app-core/src/shutdown.rs`
 - Delete: `docker/` (the whole directory)
 
 **Interfaces:**
+
 - Consumes: Task 6's `Orchestrator`.
 - Produces: `lifecycle` calling `Orchestrator` directly. `StartContext` and `Observed` move from `runner.rs` into `lifecycle.rs`; the `ProjectRunner` trait is deleted — with one runner there is nothing to abstract over.
 
@@ -828,11 +842,13 @@ git commit -m "Delete the Docker runner and the Dockerfile scaffolding"
 ### Task 8: Delete docker-manager and the Docker wire types
 
 **Files:**
+
 - Delete: `crates/docker-manager/` (whole crate)
 - Modify: `Cargo.toml` (remove the workspace member), `crates/api-types/src/dto.rs`, `crates/api-types/src/contract.rs`, `crates/api-types/src/errors.rs`, `crates/api-types/src/enums.rs`, `apps/desktop/src-tauri/src/lib.rs`, `apps/desktop/src-tauri/Cargo.toml`
 - Test: `crates/api-types` existing tests
 
 **Interfaces:**
+
 - Consumes: Task 7.
 - Produces: `SystemStatus` without `docker_status`; `ErrorCode` without `DockerUnavailable` and `DockerOperationFailed`; no `RunMode` enum; no `set_project_run_mode` Tauri command.
 
@@ -879,10 +895,12 @@ git commit -m "Remove the Docker crate and every wire type that named it"
 ### Task 9: Unthread dockerAvailable from the window
 
 **Files:**
+
 - Modify: `apps/desktop/src/api.ts:18-21,54,107,244,751,903`, `apps/desktop/src/App.tsx:216,314-324,427,470,534,584`, `apps/desktop/src/pages/Projects.tsx:9,47,53`, `apps/desktop/src/pages/ProjectDetail.tsx:81,88,134,735`, `apps/desktop/src/lib/projects.ts:172-190`
 - Test: `apps/desktop/src/lib/projects.test.ts:141-178`
 
 **Interfaces:**
+
 - Consumes: Task 8's contract.
 - Produces: `runControls(project, { busy })` — the `dockerAvailable` option is gone and the function's only blocking reason is `busy`.
 
@@ -932,12 +950,14 @@ git commit -m "Stop asking the window whether Docker is available"
 ### Task 10: Process commands over the wire
 
 **Files:**
+
 - Modify: `apps/desktop/src-tauri/src/lib.rs`, `crates/api-types/src/dto.rs`
 - Test: `crates/api-types` contract test
 
 Also in this task: `kill_project` (`apps/desktop/src-tauri/src/lib.rs:1021`) and `host_projects_running` (line 1015) are repointed at `Orchestrator` — `kill_project` now stops a project's processes in reverse order and escalates past the grace period, which is the spec's stuck-process remedy, and `host_projects_running` counts projects rather than handles now that one project owns several.
 
 **Interfaces:**
+
 - Consumes: Tasks 2 and 6.
 - Produces:
   - `ProcessSummary { id, name, startOrder, status, port: number | null, exitCode: number | null, failureReason: string | null, restartCount }` in the generated contract.
@@ -982,11 +1002,13 @@ git commit -m "Expose a project's processes to the window"
 ### Task 11: The process list in ProjectDetail
 
 **Files:**
+
 - Create: `apps/desktop/src/components/ProcessList.tsx`
 - Create: `apps/desktop/src/components/ProcessList.test.tsx`
 - Modify: `apps/desktop/src/pages/ProjectDetail.tsx`, `apps/desktop/src/api.ts`
 
 **Interfaces:**
+
 - Consumes: Task 10's `ProcessSummary`, `listProjectProcesses`, `restartProjectProcess`.
 - Produces: `<ProcessList projectId={...} processes={...} onRestart={...} />`.
 
@@ -1057,10 +1079,12 @@ git commit -m "Show a project's processes, and restart one of them"
 ### Task 12: Detection proposes a process set
 
 **Files:**
+
 - Modify: `crates/app-core/src/runtime_plan.rs`, `apps/desktop/src-tauri/src/lib.rs` (`create_project`)
 - Test: `crates/app-core/src/runtime_plan.rs` test module
 
 **Interfaces:**
+
 - Consumes: Tasks 2 and 5.
 - Produces: `RuntimePlan` gains `pub processes: Vec<NewProcess>`, and its `container_port` field is renamed `port`. `create_project` writes the process rows via `replace_processes`.
 
@@ -1097,7 +1121,7 @@ Expected: FAIL — `RuntimePlan` has no `processes`.
 
 Have `defaults_for` return a single `NewProcess` named `main` carrying the start, install and build commands it already produces, with `working_dir` `.`. Rename `container_port` to `port` throughout. Update `create_project` to call `replace_processes` with the plan's processes after creating the project row.
 
-Multi-process *detection* — proposing `api` and `web` from a monorepo — is deliberately not in this task. The plumbing that makes a process set possible is what this plan delivers; teaching detection to find one is its own change against a data model that by then exists.
+Multi-process _detection_ — proposing `api` and `web` from a monorepo — is deliberately not in this task. The plumbing that makes a process set possible is what this plan delivers; teaching detection to find one is its own change against a data model that by then exists.
 
 - [ ] **Step 4: Run tests to verify they pass**
 
@@ -1116,9 +1140,11 @@ git commit -m "Propose a process set when a project is created"
 ### Task 13: The manual checklist
 
 **Files:**
+
 - Create: `docs/superpowers/checklists/2026-08-26-process-orchestration.md`
 
 **Interfaces:**
+
 - Consumes: everything above.
 - Produces: the document that carries the verification burden the unit tests deliberately do not.
 
