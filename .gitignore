@@ -35,3 +35,4 @@ Thumbs.db
 coverage/
 test-results/
 playwright-report/
+.design.dc.html
