@@ -85,6 +85,26 @@ describe('CoreGate', () => {
     expect(screen.queryByText('the shell')).not.toBeInTheDocument();
   });
 
+  it('asks again once the listeners are registered, so a missed event cannot strand the window', async () => {
+    // The race this closes: `launch_status` answers "starting", the core
+    // becomes ready, and only *then* does `listen` finish registering. The
+    // `core://ready` event is emitted into nothing, and with a single question
+    // asked up front there is nothing left to re-check — the window sits on
+    // the launch screen for ever.
+    backend.launchStatus
+      .mockResolvedValueOnce({ state: 'starting' })
+      .mockResolvedValue({ state: 'ready' });
+
+    render(
+      <CoreGate>
+        <p>the shell</p>
+      </CoreGate>,
+    );
+
+    expect(await screen.findByText('the shell')).toBeInTheDocument();
+    expect(backend.launchStatus).toHaveBeenCalledTimes(2);
+  });
+
   it('shows children when the ready event arrives first', async () => {
     backend.launchStatus.mockReturnValue(new Promise(() => undefined));
     render(

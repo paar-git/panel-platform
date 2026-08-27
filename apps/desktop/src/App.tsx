@@ -301,11 +301,8 @@ export default function App() {
    * "start it, refresh, toast" is how the palette and the button come to
    * disagree about whether a start succeeded.
    */
-  const [runBusy, setRunBusy] = useState(false);
-  void runBusy;
   const runAction = useCallback(
     async (item: ProjectSummary, verb: string, action: (id: string) => Promise<unknown>) => {
-      setRunBusy(true);
       try {
         await action(item.id);
         await refresh();
@@ -317,8 +314,6 @@ export default function App() {
           `Could not ${verb.replace(/ed$/, '')} ${item.displayName}`,
           errorMessage(error),
         );
-      } finally {
-        setRunBusy(false);
       }
     },
     [refresh],
@@ -327,10 +322,10 @@ export default function App() {
   const commands = useMemo<Command[]>(() => {
     const target = project ?? null;
     // The same decision the Start button makes, from the same function. The
-    // palette used to test `` on its own, which disabled Start
-    // for host projects on a machine with no Docker — every project, now that
-    // HOST is the default — while the button beside it worked. `busy` is false
-    // because the palette tracks no in-flight action of its own; a project
+    // palette used to test Docker's availability on its own, which disabled
+    // Start for every project on a machine with no Docker while the button
+    // beside it worked. Nothing asks about Docker now. `busy` is false because
+    // the palette tracks no in-flight action of its own; a project
     // mid-transition is already caught by its status.
     const startBlock =
       target === null

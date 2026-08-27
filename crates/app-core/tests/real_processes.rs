@@ -670,3 +670,192 @@ async fn the_allocated_port_reaches_the_process() {
 
     orchestrator.stop(&project).await.expect("stop");
 }
+
+/// Restarting one process must actually restart it.
+///
+/// The regression this guards: `restart_process` used to stop the process and
+/// stop there. A supervisor is bound to the child it was created with, so once
+/// its stop has run the supervision task records the exit and returns — and
+/// the exit was requested, so no restart policy applies. The process was gone
+/// for good while the window reported it restarted and the row still read
+/// RUNNING. Checked by pid, because "the row says RUNNING" was exactly the
+/// thing that was wrong.
+#[tokio::test(flavor = "multi_thread")]
+async fn restarting_one_process_replaces_it_and_leaves_its_sibling_alone() {
+    if !nodejs_is_present() {
+        return;
+    }
+
+    let directory = tempfile::tempdir().expect("temp dir");
+    write(directory.path(), "api.js", STAYS_UP);
+    write(directory.path(), "web.js", STAYS_UP);
+
+    let app = state(directory.path()).await;
+    let project = project_with(
+        &app,
+        directory.path(),
+        "restart-one",
+        vec![
+            NewProcess::simple("api", 0, "node api.js"),
+            NewProcess::simple("web", 1, "node web.js"),
+        ],
+    )
+    .await;
+
+    let orchestrator = orchestrator(&app, directory.path());
+    orchestrator
+        .start(StartContext {
+            db: app.database(),
+            project: &project,
+            directory: directory.path(),
+            master_key: None,
+        })
+        .await
+        .expect("both processes should start");
+
+    let before = app.host_projects().processes(&project.id).await;
+    assert_eq!(before.len(), 2);
+    let api_pid = before[0].handle.pid().expect("api has a pid");
+    let web_pid = before[1].handle.pid().expect("web has a pid");
+
+    orchestrator
+        .restart_process(
+            StartContext {
+                db: app.database(),
+                project: &project,
+                directory: directory.path(),
+                master_key: None,
+            },
+            "web",
+        )
+        .await
+        .expect("web should restart");
+
+    // Gathered before the project is stopped, and asserted after it. A panic
+    // with two `setInterval` processes still up holds the test binary open and
+    // turns a one-second failure into a ten-minute hang.
+    let after = app.host_projects().processes(&project.id).await;
+    let count = after.len();
+    let new_web_pid = after.get(1).and_then(|process| process.handle.pid());
+    let api_pid_now = after.first().and_then(|process| process.handle.pid());
+    let new_web_alive = new_web_pid.is_some_and(project_host_platform::is_alive);
+    let api_still_alive = project_host_platform::is_alive(api_pid);
+    let old_web_died = until(Duration::from_secs(10), || {
+        !project_host_platform::is_alive(web_pid)
+    })
+    .await;
+    let web_row = projects::list_processes(app.database(), &project.id)
+        .await
+        .expect("rows")
+        .into_iter()
+        .find(|row| row.name == "web")
+        .expect("web row");
+
+    orchestrator.stop(&project).await.expect("stop");
+
+    assert_eq!(count, 2, "a restart is not a removal");
+    let new_web_pid = new_web_pid.expect("web should be running again after a restart, not gone");
+    assert_ne!(
+        new_web_pid, web_pid,
+        "web kept its pid, so nothing was restarted"
+    );
+    assert!(
+        new_web_alive,
+        "the operating system does not agree that the restarted web is alive"
+    );
+    assert!(
+        old_web_died,
+        "the old web process is still alive after being replaced"
+    );
+
+    // The sibling was not touched. If both pids changed, this restarted the
+    // project rather than the process the user pointed at.
+    assert_eq!(api_pid_now, Some(api_pid), "api was restarted too");
+    assert!(api_still_alive);
+
+    assert_eq!(web_row.status, "RUNNING");
+    assert_eq!(web_row.pid, Some(i64::from(new_web_pid)));
+    assert_eq!(web_row.restart_count, 1, "the restart was not counted");
+}
+
+/// A health check that can never pass must fail the start, and take the
+/// process it was checking down with it.
+///
+/// Two regressions in one test, because the first hid the second.
+///
+/// The gate read the supervisor's initial `Health::None` as "no check
+/// configured, nothing to wait for" and returned success on its first
+/// iteration — before the check had run even once, since the first poll is
+/// scheduled a whole start period away. Every health check passed instantly,
+/// so no health check could ever fail a start.
+///
+/// Underneath it: a failed check fed `Exited { terminal: true }` to the state
+/// machine, which reads that as "this one is already dead" and so excludes it
+/// from the teardown. The process was still running. The project was recorded
+/// FAILED while its process kept going and kept its port.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_health_check_that_never_passes_fails_the_start_and_stops_the_process() {
+    if !nodejs_is_present() {
+        return;
+    }
+
+    let directory = tempfile::tempdir().expect("temp dir");
+    // Up, and staying up — but never listening on anything. The TCP check
+    // below therefore cannot pass, however long it is given.
+    write(directory.path(), "index.js", STAYS_UP);
+
+    let app = state(directory.path()).await;
+    let mut process = NewProcess::simple("main", 0, "node index.js");
+    process.health_check_type = "TCP".to_string();
+    // A port nothing in this test binds. Not the allocated one: the point is a
+    // check that fails, not one that races.
+    process.health_check_target = Some("28471".to_string());
+    process.health_start_period_s = 0;
+    process.health_interval_s = 1;
+    process.health_retries = 2;
+    process.health_timeout_s = 1;
+
+    let project = project_with(&app, directory.path(), "unhealthy", vec![process]).await;
+
+    let orchestrator = orchestrator(&app, directory.path());
+    let observed = orchestrator
+        .start(StartContext {
+            db: app.database(),
+            project: &project,
+            directory: directory.path(),
+            master_key: None,
+        })
+        .await
+        .expect("the start itself reports its outcome rather than erroring");
+
+    // Every fact is gathered, and the project stopped, *before* anything is
+    // asserted. A panic between the two would leave a `setInterval` node
+    // running with nothing left to stop it — and a leaked child holds the test
+    // binary open, so the suite hangs for ten minutes instead of failing in
+    // one second. Cleaning up first makes a failure fail fast.
+    let status = observed.status.as_str().to_string();
+    let pid = app
+        .host_projects()
+        .processes(&project.id)
+        .await
+        .first()
+        .and_then(|process| process.handle.pid());
+    let died = match pid {
+        Some(pid) => {
+            until(Duration::from_secs(10), || {
+                !project_host_platform::is_alive(pid)
+            })
+            .await
+        }
+        None => true,
+    };
+
+    orchestrator.stop(&project).await.expect("stop");
+
+    assert_ne!(
+        status, "RUNNING",
+        "a process that never answered its health check was reported running"
+    );
+    // And it is not still out there holding its port.
+    assert!(died, "the unhealthy process ({pid:?}) was left running");
+}

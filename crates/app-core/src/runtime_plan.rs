@@ -275,32 +275,43 @@ fn defaults_for(runtime: Runtime) -> (RuntimeSpec, NewProcess, i64) {
             None,
             8000,
         ),
+        // Builds into the project's own directory, and starts what it built.
+        // `/app` was the path inside the image; there is no such directory on
+        // the host, so the old plan could not build or start on any machine.
         Runtime::Go => (
             "1.23",
             "GO_MODULES",
             Some("go mod download"),
-            Some("go build -o /app/server ./..."),
-            "/app/server",
+            Some("go build -o server ./..."),
+            "./server",
             Some("main.go"),
             None,
             8080,
         ),
+        // `cargo run` rather than a path to a binary: the binary is named after
+        // the crate, which is not knowable when the project is planned. The
+        // build has already run by then, so this compiles nothing and starts
+        // the same artefact.
         Runtime::Rust => (
             "1.83",
             "CARGO",
             Some("cargo fetch --locked"),
             Some("cargo build --release --locked"),
-            "/app/server",
+            "cargo run --release --locked",
             Some("src/main.rs"),
             None,
             8080,
         ),
+        // Maven names the jar after the artefact and its version, neither of
+        // which is knowable here, so this is a guess the user is expected to
+        // correct — but a guess about a path on the host, which `/app/app.jar`
+        // never was.
         Runtime::Java => (
             "21",
             "MAVEN",
             Some("mvn -B dependency:go-offline"),
             Some("mvn -B -DskipTests package"),
-            "java -jar /app/app.jar",
+            "java -jar target/app.jar",
             Some("pom.xml"),
             None,
             8080,
@@ -427,9 +438,40 @@ mod tests {
         assert_eq!(plan.languages, vec!["Go".to_string()]);
         assert_eq!(
             plan.processes[0].build_command.as_deref(),
-            Some("go build -o /app/server ./...")
+            Some("go build -o server ./...")
         );
-        assert_eq!(plan.processes[0].command, "/app/server");
+        assert_eq!(plan.processes[0].command, "./server");
+    }
+
+    #[test]
+    fn no_planned_command_names_a_path_inside_an_image() {
+        // `/app` was the working directory of the container image every project
+        // used to be built into. Nothing runs in an image now, and no host has
+        // that directory, so a plan that still names it cannot build or start
+        // on any machine. Checked for every runtime rather than the three that
+        // were found wrong, because the next one added would be found the same
+        // way — by a user, on Create.
+        for (wire, _) in supported_runtimes() {
+            let plan = plan_named(wire).unwrap_or_else(|error| panic!("{wire}: {error}"));
+            for process in &plan.processes {
+                for (label, command) in [
+                    ("start", Some(process.command.clone())),
+                    ("install", process.install_command.clone()),
+                    ("build", process.build_command.clone()),
+                ] {
+                    let Some(command) = command else { continue };
+                    // By word, and only where the word *begins* `/app`. A
+                    // substring search calls `target/app.jar` a container path,
+                    // which is the opposite of the point.
+                    for word in command.split_whitespace() {
+                        assert!(
+                            !word.starts_with("/app"),
+                            "{wire}'s {label} command names a container path: {command}"
+                        );
+                    }
+                }
+            }
+        }
     }
 
     #[test]

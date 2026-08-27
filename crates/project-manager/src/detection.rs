@@ -673,10 +673,12 @@ fn detect_go(root: &Path) -> Detection {
         );
     }
 
-    // Compiled: the build produces one binary and the runtime image runs it, so
-    // the start command is fixed rather than guessed.
-    detection.suggested_build_command = Some("go build -o /app/server ./...".to_string());
-    detection.suggested_start = Some("/app/server".to_string());
+    // Compiled: the build produces one binary and the start command runs it, so
+    // the start command is fixed rather than guessed. Built into the project's
+    // own directory — `/app` was the working directory of the container image,
+    // and no host has it.
+    detection.suggested_build_command = Some("go build -o server ./...".to_string());
+    detection.suggested_start = Some("./server".to_string());
     detection.suggested_entry_file = first_existing(root, &["main.go", "cmd/main.go"]);
 
     if detection.suggested_entry_file.is_none() && !root.join("cmd").is_dir() {
@@ -705,7 +707,10 @@ fn detect_rust(root: &Path) -> Detection {
     }
 
     detection.suggested_build_command = Some("cargo build --release --locked".to_string());
-    detection.suggested_start = Some("/app/server".to_string());
+    // `cargo run` rather than a path: the binary is named after the crate, which
+    // is not known here. The build above has already produced it, so this starts
+    // that artefact rather than compiling again.
+    detection.suggested_start = Some("cargo run --release --locked".to_string());
     detection.suggested_entry_file = first_existing(root, &["src/main.rs"]);
 
     if detection.suggested_entry_file.is_none() {
@@ -747,7 +752,14 @@ fn detect_java(root: &Path) -> Detection {
             first_existing(root, &["build.gradle", "build.gradle.kts"]);
     }
 
-    detection.suggested_start = Some("java -jar /app/app.jar".to_string());
+    detection.suggested_start = Some(
+        if maven {
+            "java -jar target/app.jar"
+        } else {
+            "java -jar build/libs/app.jar"
+        }
+        .to_string(),
+    );
     detection.warn(
         "JAR_NAME_ASSUMED",
         "The start command expects the build to produce a single runnable jar. If \

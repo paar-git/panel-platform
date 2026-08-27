@@ -1304,15 +1304,7 @@ async fn restart_project_process(
     process_name: String,
 ) -> CommandResult<()> {
     let app: &AppState = &state;
-    let record = projects::find_project(app.database(), &project_id)
-        .await?
-        .ok_or_else(|| CommandError {
-            message: "No project with that id.".to_string(),
-        })?;
-
-    project_host_core::lifecycle::orchestrator_for(app)
-        .restart_process(&record, &process_name)
-        .await?;
+    project_host_core::lifecycle::restart_process(app, &project_id, &process_name).await?;
     Ok(())
 }
 

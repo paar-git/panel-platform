@@ -243,7 +243,13 @@ CREATE TABLE project_ports_rebuilt (
     is_primary   INTEGER NOT NULL DEFAULT 0 CHECK (is_primary IN (0, 1)),
     -- Which process listens on it. Nullable: a port can be allocated to a
     -- project before its process set is decided.
-    process_id   TEXT REFERENCES project_processes(id) ON DELETE CASCADE,
+    --
+    -- SET NULL rather than CASCADE, because the port belongs to the project and
+    -- not to the process. Editing a project's process set replaces every row in
+    -- `project_processes`, and under CASCADE that would take the project's
+    -- allocated host port with it — silently un-allocating a port the project
+    -- is still using.
+    process_id   TEXT REFERENCES project_processes(id) ON DELETE SET NULL,
     -- Makes double allocation a database error rather than a race.
     UNIQUE (host_port, protocol, bind_address)
 );

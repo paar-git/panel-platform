@@ -1084,6 +1084,158 @@ async fn replacing_processes_removes_the_previous_set() {
     assert_eq!(all[0].command, "node b.js");
 }
 
+/// A created project's port is linked to the process that listens on it.
+///
+/// A caller cannot name a process id it has not seen minted, so every port
+/// arrives with `process_id: None` and the link has to be made where both are
+/// written. Without it the Processes card's port column was blank for every
+/// project created after migration 0009 — only migrated projects, whose ports
+/// the migration linked itself, ever showed one.
+#[tokio::test]
+async fn a_created_projects_port_is_linked_to_its_first_process() {
+    let database = db().await;
+    let project = projects::create_project(&database, &new_project("linked"))
+        .await
+        .expect("create");
+
+    let processes = projects::list_processes(&database, &project.id)
+        .await
+        .expect("list processes");
+    let ports = projects::list_ports(&database, &project.id)
+        .await
+        .expect("list ports");
+
+    assert_eq!(ports.len(), 1);
+    assert_eq!(
+        ports[0].process_id.as_deref(),
+        Some(processes[0].id.as_str())
+    );
+}
+
+/// Editing a project's process set must not take its port with it.
+///
+/// The port belongs to the project; `process_id` only records which of its
+/// processes listens on it. Under `ON DELETE CASCADE` the delete that starts
+/// every replacement silently dropped the allocated host port — a project
+/// would come back from an edit with no port at all.
+#[tokio::test]
+async fn replacing_processes_keeps_the_projects_port() {
+    let database = db().await;
+    let project = projects::create_project(&database, &new_project("kept-port"))
+        .await
+        .expect("create");
+
+    let before = projects::list_ports(&database, &project.id)
+        .await
+        .expect("ports before");
+    let allocated = before[0].host_port;
+    assert!(allocated.is_some(), "the fixture allocates a host port");
+
+    projects::replace_processes(
+        &database,
+        &project.id,
+        &[
+            NewProcess::simple("api", 0, "node api.js"),
+            NewProcess::simple("web", 1, "node web.js"),
+        ],
+    )
+    .await
+    .expect("replace");
+
+    let after = projects::list_ports(&database, &project.id)
+        .await
+        .expect("ports after");
+    assert_eq!(after.len(), 1, "the port survived the replacement");
+    assert_eq!(after[0].host_port, allocated, "and kept its number");
+
+    // And it is pointed at the new first process rather than left dangling.
+    let processes = projects::list_processes(&database, &project.id)
+        .await
+        .expect("list processes");
+    assert_eq!(processes[0].name, "api");
+    assert_eq!(
+        after[0].process_id.as_deref(),
+        Some(processes[0].id.as_str())
+    );
+}
+
+/// A stopped project has no processes running, and the rows have to say so.
+///
+/// `set_process_status` is reached only while a project is starting, so
+/// without this every process of a stopped project kept a RUNNING status and a
+/// stale pid — and kept it through a relaunch, because the rows are on disk.
+#[tokio::test]
+async fn stopping_a_project_returns_its_processes_to_stopped() {
+    let database = db().await;
+    let project = projects::create_project(&database, &new_project("settled"))
+        .await
+        .expect("create");
+    let processes = projects::list_processes(&database, &project.id)
+        .await
+        .expect("list");
+
+    projects::set_process_status(
+        &database,
+        &processes[0].id,
+        "RUNNING",
+        Some(4321),
+        None,
+        None,
+    )
+    .await
+    .expect("mark running");
+
+    projects::record_stopped(&database, &project.id, Some(0), None)
+        .await
+        .expect("record stopped");
+
+    let after = projects::list_processes(&database, &project.id)
+        .await
+        .expect("list again");
+    assert_eq!(after[0].status, "STOPPED");
+    assert_eq!(after[0].pid, None, "a pid outlives the process it named");
+}
+
+/// A crash is an answer, and settling must not erase it.
+///
+/// The reason a process went down is the one thing the Processes card has to
+/// show after a failure. Blanking every row to STOPPED would throw it away.
+#[tokio::test]
+async fn settling_keeps_a_crashed_process_crashed() {
+    let database = db().await;
+    let project = projects::create_project(&database, &new_project("crashed"))
+        .await
+        .expect("create");
+    let processes = projects::list_processes(&database, &project.id)
+        .await
+        .expect("list");
+
+    projects::set_process_status(
+        &database,
+        &processes[0].id,
+        "CRASHED",
+        Some(99),
+        Some(1),
+        Some("exited with code 1"),
+    )
+    .await
+    .expect("mark crashed");
+
+    projects::record_stopped(&database, &project.id, Some(1), Some("exited with code 1"))
+        .await
+        .expect("record stopped");
+
+    let after = projects::list_processes(&database, &project.id)
+        .await
+        .expect("list again");
+    assert_eq!(after[0].status, "CRASHED");
+    assert_eq!(
+        after[0].failure_reason.as_deref(),
+        Some("exited with code 1")
+    );
+    assert_eq!(after[0].pid, None, "but the pid is still not to be trusted");
+}
+
 /// Two processes of one project cannot share a name or a position. Both are
 /// database constraints rather than checks in the orchestrator, because the
 /// orchestrator is not the only writer.

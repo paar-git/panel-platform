@@ -161,6 +161,13 @@ fn output_of_args(program: &str, args: &[String]) -> Option<String> {
 /// Killing the child is load-bearing: without it a hung `wsl` or PowerShell
 /// keeps running after we have moved on, and the next start can pile another
 /// one on top.
+///
+/// stdout is drained on its own thread rather than after the exit. A pipe holds
+/// only a buffer's worth, so a child that writes more than that blocks on the
+/// write until somebody reads — and if the only reader waits for the exit
+/// first, the two wait for each other until the deadline kills the child. A
+/// machine with several video controllers is enough to reach that, and the
+/// answer would be lost as a timeout rather than merely arriving slowly.
 fn output_of_timed(program: &str, args: &[&str], timeout: std::time::Duration) -> Option<String> {
     use std::io::Read;
 
@@ -173,14 +180,22 @@ fn output_of_timed(program: &str, args: &[&str], timeout: std::time::Duration) -
     crate::process::hide_console(&mut command);
 
     let mut child = command.spawn().ok()?;
+    let pipe = child.stdout.take();
+    let draining = std::thread::spawn(move || {
+        let mut stdout = String::new();
+        if let Some(mut pipe) = pipe {
+            let _ = pipe.read_to_string(&mut stdout);
+        }
+        stdout
+    });
+
     let started = std::time::Instant::now();
     loop {
         match child.try_wait() {
             Ok(Some(status)) => {
-                let mut stdout = String::new();
-                if let Some(mut pipe) = child.stdout.take() {
-                    let _ = pipe.read_to_string(&mut stdout);
-                }
+                // The child is gone, so its end of the pipe is closed and the
+                // reader is at EOF or about to be. Joining cannot outlast it.
+                let stdout = draining.join().unwrap_or_default();
                 return status.success().then_some(stdout);
             }
             Ok(None) => {

@@ -387,6 +387,34 @@ pub async fn kill(app: &AppState, project_id: &str) -> Result<(), LifecycleError
     Ok(())
 }
 
+/// Restart one of a project's processes, leaving its siblings alone.
+///
+/// Separate from [`restart`], which restarts the whole project: the user
+/// pointed at one process, and the others keep their pids.
+pub async fn restart_process(
+    app: &AppState,
+    project_id: &str,
+    process_name: &str,
+) -> Result<(), LifecycleError> {
+    let db = app.database();
+    let project = projects::find_project(db, project_id)
+        .await?
+        .ok_or_else(|| LifecycleError::NoSuchProject(project_id.to_string()))?;
+
+    let directory = std::path::PathBuf::from(&project.directory);
+    orchestrator_for(app)
+        .restart_process(
+            StartContext {
+                db,
+                project: &project,
+                directory: &directory,
+                master_key: app.master_key(),
+            },
+            process_name,
+        )
+        .await
+}
+
 /// Restart a project in place, without rebuilding its image.
 pub async fn restart(app: &AppState, project_id: &str) -> Result<String, LifecycleError> {
     let db = app.database();

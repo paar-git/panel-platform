@@ -12,10 +12,10 @@ aggregation, reverse-order stop and prepare deduplication are all covered by
 unit tests.
 
 Since then `crates/app-core/tests/real_processes.rs` has been added, which does
-spawn real processes: scenarios 1, 2, 3 (partly), 8, 9 (partly), and the
-install/build ordering are now executed by `cargo test` on any machine with
-Node. Each item below says which parts a test now covers and which still need a
-person. **Scenarios 4, 5, 6, 7, 10, 11 and 12 remain entirely unrun.**
+spawn real processes: scenarios 1, 2 (partly), 3 (partly), 8, 9 (partly), 10,
+and the install/build ordering are now executed by `cargo test` on any machine
+with Node. Each item below says which parts a test now covers and which still
+need a person. **Scenarios 4, 5, 6, 7, 11 and 12 remain entirely unrun.**
 
 Record the result beside each item. An unrun scenario stays marked unrun — this
 repository's convention is to say so out loud rather than leave it to be
@@ -47,11 +47,23 @@ server that binds `process.env.PORT`.
 **Expect.** One process named `main` reaching `RUNNING`. The page loads. After
 Stop the process list shows `STOPPED` and the port is free.
 
-## 2. Two processes, in order ✅ (automated, without a health check) / ☐ (health-gated)
+## 2. Two processes, in order ✅ (automated) / ☐ (the health-gated ordering itself)
 
 > `processes_start_in_order` proves the second process starts after the first,
-> gated on settling. **The health-check gate is still unrun** — no test here
-> configures one, so "web waits for api to answer /health" remains a claim.
+> gated on settling.
+>
+> The health gate is now partly covered.
+> `a_health_check_that_never_passes_fails_the_start_and_stops_the_process`
+> proves a check that cannot pass **does** fail the start, and that the process
+> it was checking is stopped rather than left holding its port. That test was
+> written against two defects it found: the gate returned success on its first
+> look, before the check had run even once, so no health check could ever fail
+> a start; and a process that failed one was excluded from the teardown as
+> though it had already exited, so it kept running.
+>
+> **Still unrun: the positive ordering claim.** No test configures a check that
+> passes and then watches a successor wait for it, so "web waits for api to
+> answer /health" is still a claim rather than a result.
 
 **Setup.** A project with two process rows: `api` (order 0, a server on its
 `PORT`) and `web` (order 1, a Vite dev server). Give `api` an HTTP health check
@@ -144,7 +156,17 @@ crash-loop.
 The project reports `CRASHED`, and the reason names `api` — not a generic
 failure. `web` must not be torn down while `api` is merely `RESTARTING`.
 
-## 10. Restarting one process ☐
+## 10. Restarting one process ✅ (automated) / ☐ (through the window)
+
+> `restarting_one_process_replaces_it_and_leaves_its_sibling_alone` starts two
+> processes, restarts one, and checks by pid that the restarted one is a
+> different living process, that the old one is gone, and that the sibling kept
+> its pid. It also checks the row: RUNNING, the new pid, `restart_count` 1.
+>
+> Written against a defect it found: `restart_process` stopped the process and
+> stopped there. A supervisor is bound to the child it was created with, and
+> the exit was requested, so no restart policy applied — the process was gone
+> for good while the window said it had restarted.
 
 **Setup.** The two-process project, running, with both pids noted.
 

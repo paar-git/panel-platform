@@ -23,20 +23,30 @@ export default function CoreGate({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let cancelled = false;
+    const ask = () =>
+      launchStatus()
+        .then((next) => {
+          if (!cancelled) setStatus((previous) => hold(previous, next));
+        })
+        .catch(() => {
+          // No bridge yet (tests, or the window beat the IPC). Stay on
+          // starting; the events still settle it.
+        });
+
     const ready = onCoreReady(() => {
       if (!cancelled) setStatus((previous) => hold(previous, { state: 'ready' }));
     });
     const failed = onCoreFailed((message) => {
       if (!cancelled) setStatus((previous) => hold(previous, { state: 'failed', message }));
     });
-    void launchStatus()
-      .then((next) => {
-        if (!cancelled) setStatus((previous) => hold(previous, next));
-      })
-      .catch(() => {
-        // No bridge yet (tests, or the window beat the IPC). Stay on starting;
-        // the events still settle it.
-      });
+    void ask();
+    // Asked a second time once both listeners are actually registered.
+    // Registration is asynchronous, so a core that became ready after the
+    // first answer was taken but before `listen` was in place would emit
+    // `core://ready` into nothing, and the window would sit on the launch
+    // screen for ever. `hold` makes the extra answer harmless when the event
+    // did arrive.
+    void Promise.all([ready, failed]).then(ask);
     return () => {
       cancelled = true;
       void ready.then((stop) => stop());

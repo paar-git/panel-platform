@@ -339,6 +339,13 @@ pub async fn create_project(database: &Database, new: &NewProject) -> Result<Pro
         insert_port(&mut transaction, &id, port).await?;
     }
 
+    // A caller cannot name a process id it has not seen minted, so every port
+    // it writes arrives with `process_id: None`. Linking here is what makes the
+    // port column on the Processes card show anything at all for a project
+    // created after migration 0009 — without it, only migrated projects, whose
+    // ports 0009 linked itself, ever had one.
+    relink_orphaned_ports(&mut transaction, &id).await?;
+
     transaction.commit().await?;
 
     find_project(database, &id)
@@ -563,9 +570,39 @@ pub async fn replace_processes(
         .await?;
     }
 
+    // The delete above set `process_id` to NULL on every port that pointed at a
+    // process that has just gone. The ports themselves survive — they belong to
+    // the project — so they are pointed at the new first process, which is the
+    // same rule migration 0009 used when it gave every existing port to `main`.
+    relink_orphaned_ports(&mut transaction, project_id).await?;
+
     transaction.commit().await?;
 
     list_processes(database, project_id).await
+}
+
+/// Give every port with no process to the project's first process.
+///
+/// A port belongs to the project; `process_id` only records which of its
+/// processes listens on it. A port left with no answer would report a blank
+/// port column for a project that has one allocated.
+async fn relink_orphaned_ports(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    project_id: &str,
+) -> Result<()> {
+    sqlx::query(
+        "UPDATE project_ports
+            SET process_id = (SELECT p.id FROM project_processes p
+                               WHERE p.project_id = ?
+                            ORDER BY p.start_order, p.name
+                               LIMIT 1)
+          WHERE project_id = ? AND process_id IS NULL",
+    )
+    .bind(project_id)
+    .bind(project_id)
+    .execute(&mut **transaction)
+    .await?;
+    Ok(())
 }
 
 /// Record what a process is observed to be doing.
@@ -770,6 +807,39 @@ pub async fn record_stopped(
     .bind(i64::from(failed))
     .bind(failure_reason)
     .bind(&now)
+    .bind(project_id)
+    .execute(database.pool())
+    .await?;
+
+    // A project that has stopped has no processes left running, and its rows
+    // have to say so. Nothing else writes them back: `set_process_status` is
+    // reached only while a project is starting, so without this every process
+    // of a stopped project kept a RUNNING status and a stale pid — through a
+    // relaunch, because the rows are on disk.
+    settle_processes(database, project_id).await?;
+    Ok(())
+}
+
+/// Settle every process of a project that is no longer running.
+///
+/// The pid is cleared for all of them. A pid outlives the process it named and
+/// the operating system reuses them, so a stale one is not merely wrong — it
+/// points at whatever came next.
+///
+/// The *status* is only moved for a process caught mid-flight: STARTING,
+/// RUNNING, RESTARTING, STOPPING. CRASHED and FAILED are answers, and they
+/// carry the reason the Processes card shows; overwriting them with STOPPED
+/// would throw away the only record of why the project went down.
+pub async fn settle_processes(database: &Database, project_id: &str) -> Result<()> {
+    sqlx::query(
+        "UPDATE project_processes
+            SET pid = NULL,
+                started_at = NULL,
+                status = CASE
+                    WHEN status IN ('STARTING', 'RUNNING', 'RESTARTING', 'STOPPING')
+                    THEN 'STOPPED' ELSE status END
+          WHERE project_id = ?",
+    )
     .bind(project_id)
     .execute(database.pool())
     .await?;

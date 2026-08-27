@@ -42,7 +42,7 @@ use project_host_database::projects::{self, ProcessRecord, ProjectRecord, Runtim
 use project_host_database::Database;
 use project_host_host_runner::health::{Check, Health};
 use project_host_host_runner::orchestration::{
-    Action, Event, Machine, Process, ProjectStatus as MachineStatus,
+    Action, Event, Machine, Process, ProcessState, ProjectStatus as MachineStatus,
 };
 use project_host_host_runner::probe::Toolchain;
 use project_host_host_runner::supervisor::{
@@ -143,6 +143,31 @@ impl ProcessRegistry {
 
     async fn remove(&self, project_id: &str) -> Vec<RunningProcess> {
         self.0.write().await.remove(project_id).unwrap_or_default()
+    }
+
+    /// Swap one process's handle for a fresh one, leaving its siblings alone.
+    ///
+    /// What a single-process restart needs: the project's entry keeps its
+    /// order and its other handles, and only the named one is replaced.
+    /// Answers whether the name was there to replace.
+    async fn replace_handle(
+        &self,
+        project_id: &str,
+        process_name: &str,
+        handle: SupervisorHandle,
+    ) -> bool {
+        let mut registry = self.0.write().await;
+        let Some(processes) = registry.get_mut(project_id) else {
+            return false;
+        };
+        let Some(found) = processes
+            .iter_mut()
+            .find(|process| process.name == process_name)
+        else {
+            return false;
+        };
+        found.handle = handle;
+        true
     }
 
     /// Every process of one project, in start order.
@@ -388,15 +413,29 @@ impl Orchestrator {
 
                     if process.health_check_type == "NONE" {
                         actions = machine.handle(Event::Settled { index });
+                    } else if await_health(&handle, process).await {
+                        actions = machine.handle(Event::Healthy { index });
                     } else {
-                        actions = match await_health(&handle, process).await {
-                            true => machine.handle(Event::Healthy { index }),
-                            false => machine.handle(Event::Exited {
-                                index,
-                                code: None,
-                                terminal: true,
-                            }),
-                        };
+                        // Stop it first. The machine reads `Exited` as "this
+                        // one is already dead", and so excludes it from the
+                        // teardown of its siblings — which is right for a real
+                        // exit and wrong here, because a process that failed
+                        // its health check is still running and still holding
+                        // its port. Without this the project is recorded
+                        // FAILED while its main process keeps going.
+                        if let Err(error) = handle.stop(DEFAULT_GRACE).await {
+                            tracing::warn!(
+                                project = %project.id,
+                                process = %process.name,
+                                %error,
+                                "an unhealthy process would not stop"
+                            );
+                        }
+                        actions = machine.handle(Event::Exited {
+                            index,
+                            code: None,
+                            terminal: true,
+                        });
                     }
                 }
                 Err(error) => {
@@ -465,18 +504,129 @@ impl Orchestrator {
     /// The one operation that deliberately does not go through the state
     /// machine: the user asked about this process, not about the project, and
     /// the siblings keep their pids.
+    ///
+    /// Both halves are done here, and the second is the one that used to be
+    /// missing. A supervisor is bound to the child it was created with: once
+    /// `stop` has run, its task records the exit and returns, and no restart
+    /// policy applies because the exit was requested. Stopping alone therefore
+    /// ended the process for good while the window reported it restarted. So a
+    /// fresh supervisor is spawned and swapped into the registry in its place.
     pub async fn restart_process(
         &self,
-        project: &ProjectRecord,
+        ctx: StartContext<'_>,
         process_name: &str,
     ) -> Result<(), LifecycleError> {
-        let Some(handle) = self.registry.handle_named(&project.id, process_name).await else {
+        let StartContext {
+            db,
+            project,
+            directory,
+            master_key,
+        } = ctx;
+
+        let Some(previous) = self.registry.handle_named(&project.id, process_name).await else {
             return Err(LifecycleError::NoSuchProcess {
                 project: project.id.clone(),
                 process: process_name.to_string(),
             });
         };
-        handle.stop(DEFAULT_GRACE).await?;
+
+        let processes = projects::list_processes(db, &project.id).await?;
+        let Some((index, process)) = processes
+            .iter()
+            .enumerate()
+            .find(|(_, candidate)| candidate.name == process_name)
+        else {
+            return Err(LifecycleError::NoSuchProcess {
+                project: project.id.clone(),
+                process: process_name.to_string(),
+            });
+        };
+
+        let runtime = projects::find_runtime(db, &project.id)
+            .await?
+            .ok_or_else(|| {
+                LifecycleError::Scaffold("the project has no runtime row".to_string())
+            })?;
+        let is_static = runtime.runtime == STATIC;
+        let toolchain = if is_static {
+            Toolchain::NotRequired
+        } else {
+            resolve_toolchain(&runtime.runtime)?
+        };
+
+        // Everything is resolved before the running process is touched. A
+        // restart that stopped first and then discovered the toolchain had
+        // gone would leave the user with neither the old process nor a new
+        // one, having reported a restart.
+        let environment = crate::env::resolve(db, &project.id, master_key).await?;
+        let port = port_by_process(db, &project.id, &processes)
+            .await?
+            .get(index)
+            .copied()
+            .flatten();
+        let command = if is_static {
+            static_command(
+                &joined(directory, &process.working_dir),
+                runtime.publish_dir.as_deref(),
+                port,
+                &environment,
+            )?
+        } else {
+            build_command(
+                &runtime,
+                &process.command,
+                &joined(directory, &process.working_dir),
+                &toolchain,
+                port,
+                &environment,
+            )?
+        };
+
+        // Only now. The old process has to be gone before the new one is
+        // spawned, or the two fight over the port.
+        previous.stop(DEFAULT_GRACE).await?;
+
+        let log_path = project_host_host_runner::log_path(&self.logs_root, &project.slug, &today());
+        let mut config = SupervisorConfig::new(command, log_path);
+        config.health = health_policy(process, port);
+        config.restart_on_crash = project.restart_policy != "NO";
+
+        let handle = project_host_host_runner::start(config).await?;
+        if !self
+            .registry
+            .replace_handle(&project.id, process_name, handle.clone())
+            .await
+        {
+            // The project was stopped out from under the restart. The new
+            // process is not in the registry, so nothing could ever stop it.
+            let _ = handle.stop(DEFAULT_GRACE).await;
+            return Err(LifecycleError::NoSuchProcess {
+                project: project.id.clone(),
+                process: process_name.to_string(),
+            });
+        }
+
+        let observed = handle.observe();
+        let state = match observed.status {
+            HostStatus::Running => ProcessState::Running,
+            _ => ProcessState::Crashed,
+        };
+        if let Err(error) = projects::set_process_status(
+            db,
+            &process.id,
+            state.as_str(),
+            handle.pid().map(i64::from),
+            observed.exit_code,
+            observed.failure_reason.as_deref(),
+        )
+        .await
+        {
+            tracing::warn!(process = %process.name, %error, "could not record a restarted process");
+        }
+        if let Err(error) = projects::increment_process_restart_count(db, &process.id).await {
+            tracing::warn!(process = %process.name, %error, "could not count a restart");
+        }
+
         Ok(())
     }
 
@@ -566,9 +716,17 @@ async fn await_health(handle: &SupervisorHandle, process: &ProcessRecord) -> boo
     loop {
         match handle.observe().health {
             Health::Passing => return true,
-            // No check configured, so there is nothing to wait for. Reached
-            // only if the row and the policy disagree.
-            Health::None => return true,
+            // Not yet asked. The supervisor starts every process at
+            // `Health::None` and only writes a verdict after the first tick,
+            // which is scheduled a whole start period away — twenty seconds by
+            // default. Reading this as "nothing to wait for" is what made the
+            // gate pass instantly for every process, so a process was reported
+            // healthy before its check had run once, its successor spawned
+            // immediately, and a check that could never pass could never fail
+            // the start. There is always a policy here: `await_health` is
+            // called only when `health_check_type` is not `NONE`, which is the
+            // same condition under which `health_policy` returns one.
+            Health::None => {}
             Health::Failing(_) => {}
         }
 
