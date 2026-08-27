@@ -127,6 +127,7 @@ const SUBPROCESS_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2
 /// alias that allocates a visible console even when `CREATE_NO_WINDOW` is set.
 /// `-WindowStyle Hidden` is the belt to that flag's braces — some hosts honour
 /// one and not the other.
+#[allow(dead_code)] // Used from the `#[cfg(windows)]` blocks below, and by the tests.
 fn hidden_powershell(script: &str) -> (&'static str, Vec<String>) {
     (
         "powershell.exe",

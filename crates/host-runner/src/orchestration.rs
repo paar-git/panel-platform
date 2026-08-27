@@ -151,9 +151,7 @@ impl Machine {
     /// Begin a start: everything waits, and the first process goes.
     pub fn start(&mut self) -> Vec<Action> {
         self.stopping = false;
-        for state in &mut self.states {
-            *state = ProcessState::Pending;
-        }
+        self.states.fill(ProcessState::Pending);
 
         let mut actions = Vec::new();
         if self.processes.is_empty() {
