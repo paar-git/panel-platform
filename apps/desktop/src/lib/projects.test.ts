@@ -24,7 +24,6 @@ function project(status: string, desiredState = 'RUNNING'): ProjectSummary {
     status,
     desiredState,
     color: null,
-    runMode: 'DOCKER',
   };
 }
 
@@ -134,48 +133,25 @@ describe('describing an audit entry', () => {
 });
 
 describe('runControls', () => {
-  function withMode(runMode: string, status = 'STOPPED'): ProjectSummary {
-    return { ...project(status), runMode };
-  }
+  it('leaves a stopped project usable', () => {
+    expect(runControls(project('STOPPED'), { busy: false })).toEqual({ blocked: false });
+  });
 
-  it('blocks a Docker project when there is no daemon', () => {
-    const { blocked, reason } = runControls(withMode('DOCKER'), {
-      busy: false,
-      dockerAvailable: false,
-    });
+  // Nothing outside the project blocks it any more. A missing daemon used to;
+  // a missing runtime deliberately does not, because that is caught when Start
+  // is pressed and answered with an offer to install it.
+  it('never blocks for a reason outside the project', () => {
+    expect(runControls(project('STOPPED'), { busy: false }).reason).toBeUndefined();
+  });
+
+  it('blocks while the project is transitioning', () => {
+    const { blocked, reason } = runControls(project('STARTING'), { busy: false });
     expect(blocked).toBe(true);
-    expect(reason).toBe('Docker is not available');
+    expect(reason).toBe('The project is starting');
   });
 
-  // The whole point of host mode. Before this, a machine with no daemon had
-  // every control greyed out and the feature was unreachable.
-  it('leaves a host project usable when there is no daemon', () => {
-    expect(runControls(withMode('HOST'), { busy: false, dockerAvailable: false })).toEqual({
-      blocked: false,
-    });
-  });
-
-  it('blocks either mode while the project is transitioning', () => {
-    for (const mode of ['DOCKER', 'HOST']) {
-      const { blocked, reason } = runControls(withMode(mode, 'STARTING'), {
-        busy: false,
-        dockerAvailable: true,
-      });
-      expect(blocked).toBe(true);
-      expect(reason).toBe('The project is starting');
-    }
-  });
-
-  it('blocks either mode while another action is running', () => {
-    for (const mode of ['DOCKER', 'HOST']) {
-      expect(runControls(withMode(mode), { busy: true, dockerAvailable: true }).blocked).toBe(true);
-    }
-  });
-
-  it('allows a Docker project when the daemon is there', () => {
-    expect(runControls(withMode('DOCKER'), { busy: false, dockerAvailable: true })).toEqual({
-      blocked: false,
-    });
+  it('blocks while another action is running', () => {
+    expect(runControls(project('STOPPED'), { busy: true }).blocked).toBe(true);
   });
 });
 

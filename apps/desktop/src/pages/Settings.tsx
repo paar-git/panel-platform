@@ -19,12 +19,14 @@ import {
   powerJournal,
   revealProjectPath,
   setPowerMode,
+  startupDiagnostics,
   systemMetrics,
   type AppSettings,
   type PowerJournalEntry,
   type PowerMode,
   type PowerStatus,
   type ProjectSummary,
+  type StartupDiagnostics,
   type SystemMetrics,
   type SystemStatus,
 } from '../api';
@@ -135,6 +137,7 @@ export default function Settings({
   const [metrics, setMetrics] = useState<SystemMetrics | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
   const [journal, setJournal] = useState<PowerJournalEntry[]>([]);
+  const [launch, setLaunch] = useState<StartupDiagnostics | null>(null);
   const update = useUpdate();
 
   const powerSummary = powerLook(power);
@@ -177,6 +180,13 @@ export default function Settings({
       .then(setMetrics)
       .catch(() => setMetrics(null));
   }, []);
+
+  useEffect(() => {
+    if (tab !== 'logging') return;
+    startupDiagnostics()
+      .then(setLaunch)
+      .catch(() => setLaunch(null));
+  }, [tab]);
 
   function copy(value: string, what: string) {
     navigator.clipboard
@@ -242,7 +252,7 @@ export default function Settings({
           <div className="grid gap-4 lg:grid-cols-2">
             <Card>
               <CardHeader title="This window" subtitle="Preferences stored on this machine" />
-              <div className="px-4 py-1">
+              <div className="py-1">
                 <Toggle
                   checked={preferences.collapsedSidebar}
                   onChange={(collapsedSidebar) => onPreferences({ collapsedSidebar })}
@@ -279,7 +289,7 @@ export default function Settings({
                   those screens report rather than edit — change the file and restart.
                 </p>
               </div>
-              <div className="border-t border-edge px-4 py-1">
+              <div className="border-t border-edge py-1">
                 <DataRow label="Mode" value={settings?.mode ?? '—'} />
                 <DataRow label="Maximum projects" value={settings ? settings.maxProjects : '—'} />
                 <DataRow
@@ -320,7 +330,7 @@ export default function Settings({
 
             <Card>
               <CardHeader title="Behaviour" />
-              <div className="px-4 py-1">
+              <div className="py-1">
                 <Toggle
                   checked={preferences.confirmDestructive}
                   onChange={(confirmDestructive) => onPreferences({ confirmDestructive })}
@@ -351,7 +361,7 @@ export default function Settings({
                 title="Developer mode"
                 subtitle="For diagnosing this application, not your projects"
               />
-              <div className="px-4 py-1">
+              <div className="py-1">
                 <Toggle
                   checked={preferences.developerMode}
                   onChange={(developerMode) => onPreferences({ developerMode })}
@@ -428,7 +438,7 @@ export default function Settings({
 
             <Card>
               <CardHeader title="What this machine is doing" />
-              <div className="px-4 py-1">
+              <div className="py-1">
                 <DataRow
                   label="In force"
                   value={
@@ -487,7 +497,7 @@ export default function Settings({
                   hour produces one line, not eighteen hundred.
                 </p>
               ) : (
-                <ul className="px-4 py-1">
+                <ul className="py-1">
                   {journal.map((entry) => (
                     <li key={entry.seq} className="border-b border-edge/60 py-2 last:border-b-0">
                       <div className="flex items-baseline justify-between gap-3">
@@ -514,7 +524,7 @@ export default function Settings({
                   </Button>
                 }
               />
-              <div className="px-4 py-1">
+              <div className="py-1">
                 {pathRow('Data', settings?.dataDir)}
                 {pathRow('Projects', settings?.projectsDir)}
                 {pathRow('Logs', settings?.logsDir)}
@@ -532,7 +542,7 @@ export default function Settings({
                   <Skeleton className="h-16" />
                 </div>
               ) : (
-                <div className="px-4 py-1">
+                <div className="py-1">
                   <DataRow label="Used" value={formatBytes(metrics.diskUsedBytes)} />
                   <DataRow label="Total" value={formatBytes(metrics.diskTotalBytes)} />
                   <DataRow
@@ -554,7 +564,7 @@ export default function Settings({
               title="Host port pool"
               subtitle="Ports projects are given on this machine"
             />
-            <div className="px-4 py-1">
+            <div className="py-1">
               <DataRow
                 label="Range"
                 value={settings ? `${settings.portPoolStart}–${settings.portPoolEnd}` : '—'}
@@ -588,7 +598,7 @@ export default function Settings({
                 </Button>
               }
             />
-            <div className="px-4 py-1">
+            <div className="py-1">
               <DataRow label="Installed version" value={status?.appVersion ?? '—'} />
               <DataRow label="Release channel" value="stable" />
               <DataRow label="Check on startup" value="on" />
@@ -604,32 +614,54 @@ export default function Settings({
         )}
 
         {tab === 'logging' && (
-          <Card className="max-w-xl">
-            <CardHeader title="Logging" subtitle="What the core writes to disk" />
-            <div className="px-4 py-1">
-              <DataRow label="Level" value={settings?.logLevel ?? '—'} />
-              <DataRow
-                label="Format"
-                value={settings ? (settings.logJson ? 'structured JSON' : 'plain text') : '—'}
+          <div className="grid gap-4 lg:grid-cols-2">
+            <Card className="max-w-xl">
+              <CardHeader title="Logging" subtitle="What the core writes to disk" />
+              <div className="py-1">
+                <DataRow label="Level" value={settings?.logLevel ?? '—'} />
+                <DataRow
+                  label="Format"
+                  value={settings ? (settings.logJson ? 'structured JSON' : 'plain text') : '—'}
+                />
+                <DataRow
+                  label="Kept for"
+                  value={settings ? `${settings.logRetentionDays} days` : '—'}
+                />
+                {pathRow('Directory', settings?.logsDir)}
+              </div>
+              <p className="border-t border-edge px-4 py-2.5 text-[12px] text-muted">
+                Reading those files back into this window is not built yet, so nothing is shown here
+                that has not been read.
+              </p>
+            </Card>
+            <Card className="max-w-xl">
+              <CardHeader
+                title="This launch"
+                subtitle="Which stage took time, so a slow start names its cause"
               />
-              <DataRow
-                label="Kept for"
-                value={settings ? `${settings.logRetentionDays} days` : '—'}
-              />
-              {pathRow('Directory', settings?.logsDir)}
-            </div>
-            <p className="border-t border-edge px-4 py-2.5 text-[12px] text-muted">
-              Reading those files back into this window is not built yet, so nothing is shown here
-              that has not been read.
-            </p>
-          </Card>
+              <div className="py-1">
+                <DataRow label="Total" value={launch ? `${launch.totalMs} ms` : '—'} />
+                {(launch?.stages ?? []).map((stage) => (
+                  <DataRow
+                    key={stage.name}
+                    label={stage.name}
+                    value={`${stage.durationMs} ms · ${stage.outcome}`}
+                  />
+                ))}
+              </div>
+              <p className="border-t border-edge px-4 py-2.5 text-[12px] text-muted">
+                Stages after the window opened (Docker, the full machine scan) appear here once they
+                finish. A stage over 500 ms is also written as a warning in the log.
+              </p>
+            </Card>
+          </div>
         )}
 
         {tab === 'about' && (
           <div className="grid gap-4 lg:grid-cols-2">
             <Card>
               <CardHeader title="Application" />
-              <div className="px-4 py-1">
+              <div className="py-1">
                 <DataRow label="Version" value={status?.appVersion ?? '—'} />
                 <DataRow label="Database schema" value={status?.schemaVersion ?? '—'} />
                 <DataRow
@@ -647,7 +679,7 @@ export default function Settings({
                   <Skeleton className="h-24" />
                 </div>
               ) : (
-                <div className="px-4 py-1">
+                <div className="py-1">
                   <DataRow label="Logical cores" value={metrics.cpuCount} />
                   <DataRow label="Memory" value={formatBytes(metrics.memoryTotalBytes)} />
                   <DataRow label="Projects volume" value={metrics.diskMount || '—'} mono />

@@ -68,3 +68,8 @@ pub const DISCORD_BOT_PROJECTS_MIGRATION: &str =
 /// status, HOST as the run mode every row now carries, and the two columns the
 /// resource manager reads.
 pub const LOCAL_RUNTIME_MIGRATION: &str = include_str!("../migrations/0008_local_runtime.sql");
+
+/// The migration that gives a project more than one process, and takes the
+/// last container columns out of the schema. After it, the authoritative
+/// definition of `projects`, `project_runtimes` and `project_ports` is here.
+pub const PROCESSES_MIGRATION: &str = include_str!("../migrations/0009_processes.sql");

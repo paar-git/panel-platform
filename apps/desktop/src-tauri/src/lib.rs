@@ -6,7 +6,9 @@
 //! because anything that lives here cannot be tested without a window.
 //!
 //! The [`Runtime`] is started once, before the window opens, and handed to
-//! Tauri as managed state. Commands borrow it; none of them own it.
+//! Tauri as managed state. Commands borrow it; none of them own it. Docker,
+//! WSL and other optional probes run after the window exists, so a hung
+//! daemon cannot keep the window closed.
 
 #![cfg_attr(
     test,
@@ -19,16 +21,15 @@
 )]
 
 use std::collections::HashSet;
-use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 
 use serde::Serialize;
 use tauri::{Emitter, Manager};
 
-use project_host_api_types::RunMode;
 use project_host_core::provisioning::SourceSpec;
-use project_host_core::{resolve_paths, AppConfig, AppState, Runtime};
+use project_host_core::{resolve_paths, AppConfig, AppState, Runtime, StartupDiagnostics};
 use project_host_database::projects;
+use project_host_platform::PathProvider;
 use project_host_project_manager::names::{sanitise_display_name, Slug};
 use project_host_project_manager::ports::PortPool;
 use project_host_security::Secret;
@@ -133,6 +134,16 @@ impl<E: std::fmt::Display> From<E> for CommandError {
 
 type CommandResult<T> = Result<T, CommandError>;
 
+/// Whether the core has finished starting. The window is shown before that
+/// happens, so the loading page can ask this without talking to `AppState`.
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "state", rename_all = "snake_case")]
+enum LaunchStatus {
+    Starting,
+    Ready,
+    Failed { message: String },
+}
+
 /// The state the window shows in its header.
 #[derive(Debug, Serialize)]
 pub struct SystemStatus {
@@ -140,12 +151,6 @@ pub struct SystemStatus {
     pub schema_version: u32,
     pub uptime_seconds: u64,
     pub started_at: String,
-    pub docker_available: bool,
-    pub docker_summary: String,
-    pub docker_version: Option<String>,
-    /// Present only when Docker is missing, and phrased as something the user
-    /// can act on.
-    pub docker_hint: Option<String>,
 }
 
 /// One row in the project list.
@@ -159,11 +164,6 @@ pub struct ProjectSummary {
     pub status: String,
     pub desired_state: String,
     pub color: Option<String>,
-    /// `DOCKER` or `HOST`. The interface needs it for two things: a badge, and
-    /// deciding whether a missing daemon should disable this project's
-    /// controls. Without it a machine with no Docker has every control greyed
-    /// out, including for the projects that do not need one.
-    pub run_mode: String,
 }
 
 #[tauri::command]
@@ -174,21 +174,32 @@ async fn system_status(state: tauri::State<'_, AppState>) -> CommandResult<Syste
     let app: &AppState = &state;
     let facts = app.inner();
 
-    let docker = app.docker_status().await;
     Ok(SystemStatus {
         app_version: facts.app_version.clone(),
         schema_version: facts.schema_version,
         uptime_seconds: app.uptime_seconds(),
         started_at: facts.started_at_wall.clone(),
-        docker_available: docker.available,
-        docker_summary: docker.summary(),
-        docker_version: docker.version.clone(),
-        docker_hint: if docker.available {
-            None
-        } else {
-            docker.install_hint.clone().or_else(|| docker.error.clone())
-        },
     })
+}
+
+/// How long each startup stage took. Surfaced so a slow launch names the
+/// stage that caused it, rather than only that the window was late.
+#[tauri::command]
+fn startup_diagnostics(
+    diagnostics: tauri::State<'_, Arc<Mutex<StartupDiagnostics>>>,
+) -> CommandResult<StartupDiagnostics> {
+    Ok(diagnostics
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .clone())
+}
+
+#[tauri::command]
+fn launch_status(status: tauri::State<'_, Arc<Mutex<LaunchStatus>>>) -> LaunchStatus {
+    status
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .clone()
 }
 
 #[tauri::command]
@@ -205,7 +216,6 @@ async fn list_projects(state: tauri::State<'_, AppState>) -> CommandResult<Vec<P
             status: record.status,
             desired_state: record.desired_state,
             color: record.color,
-            run_mode: record.run_mode,
         })
         .collect())
 }
@@ -226,10 +236,6 @@ pub struct NewProjectRequest {
     /// older callers working.
     #[serde(default)]
     pub source: Option<SourceRequest>,
-    /// `DOCKER` or `HOST`. Absent means `DOCKER`, which is what every caller
-    /// written before host mode existed means, and the substrate that isolates.
-    #[serde(default)]
-    pub run_mode: Option<String>,
 }
 
 /// The source half of the creation form.
@@ -551,9 +557,6 @@ async fn create_project(
             source_url: outcome.source_url.clone(),
             source_ref: outcome.source_ref.clone(),
             source_commit: outcome.source_commit.clone(),
-            container_name: format!("projecthost-{slug}"),
-            network_name: format!("projecthost-net-{slug}"),
-            volume_name: format!("projecthost-data-{slug}"),
             autostart: false,
             restart_policy: "UNLESS_STOPPED".to_string(),
             network_mode: "INTERNET".to_string(),
@@ -565,12 +568,17 @@ async fn create_project(
             storage_limit_mb: 2048,
             process_limit: defaults.process_limit,
             runtime: plan.spec.clone(),
+            processes: plan.processes.clone(),
             ports: vec![projects::NewPort {
-                container_port: plan.container_port,
+                port: plan.port,
                 host_port: Some(i64::from(host_port)),
                 protocol: "tcp".to_string(),
                 bind_address: "127.0.0.1".to_string(),
                 is_primary: true,
+                // Linked once the process rows exist: `create_project` writes
+                // the processes and the ports in one transaction, and the
+                // process ids are minted inside it.
+                process_id: None,
             }],
         },
     )
@@ -583,17 +591,6 @@ async fn create_project(
             // attempt with the same id would refuse to write into it.
             project_host_core::provisioning::discard_directory(&directory);
             return Err(CommandError::from(error));
-        }
-    };
-
-    // Applied after creation rather than through NewProject: the column has a
-    // DOCKER default and one UPDATE is a smaller change than threading a new
-    // field through create_project and every caller of it.
-    let record = match apply_run_mode(app, &record, request.run_mode.as_deref()).await {
-        Ok(record) => record,
-        Err(error) => {
-            project_host_core::provisioning::discard_directory(&directory);
-            return Err(error);
         }
     };
 
@@ -624,7 +621,6 @@ async fn create_project(
             status: record.status,
             desired_state: record.desired_state,
             color: record.color,
-            run_mode: record.run_mode,
         },
         runtime: plan.spec.runtime,
         detected: plan.detected,
@@ -699,16 +695,29 @@ async fn readiness_for(
             message: "This project has no runtime recorded.".to_string(),
         })?;
 
-    let snapshot = project_host_platform::probe::SystemProbe::snapshot(
-        &project_host_platform::probe::SystemScanner,
-    );
+    // Full scan: toolchain install needs WSL and firmware virtualization, which
+    // the launch snapshot deliberately skipped. Bounded subprocesses, so a
+    // wedged WSL delays Start rather than the window.
+    let snapshot =
+        tokio::task::spawn_blocking(|| project_host_platform::probe::SystemScanner.snapshot_full())
+            .await
+            .map_err(|error| CommandError {
+                message: format!("the machine scan did not finish: {error}"),
+            })?;
     let host = project_host_core::host_from_snapshot(
         &snapshot,
         project_host_core::toolchain_flow::winget_present(),
     );
 
-    let install =
-        project_host_core::toolchain_flow::project_install_for(runtime.install_command.as_deref());
+    // The project's install command, from whichever process declares one. A
+    // toolchain is a property of the project, so any process needing an
+    // install is enough to make the toolchain required.
+    let processes = projects::list_processes(app.database(), project_id).await?;
+    let install = project_host_core::toolchain_flow::project_install_for(
+        processes
+            .iter()
+            .find_map(|process| process.install_command.as_deref()),
+    );
 
     let readiness = project_host_core::assess(
         &runtime.runtime,
@@ -807,9 +816,12 @@ async fn install_toolchain(
         project_host_core::Readiness::NeedsInstall { steps } => steps,
     };
 
-    let snapshot = project_host_platform::probe::SystemProbe::snapshot(
-        &project_host_platform::probe::SystemScanner,
-    );
+    let snapshot =
+        tokio::task::spawn_blocking(|| project_host_platform::probe::SystemScanner.snapshot_full())
+            .await
+            .map_err(|error| CommandError {
+                message: format!("the machine scan did not finish: {error}"),
+            })?;
     let host = project_host_core::host_from_snapshot(
         &snapshot,
         project_host_core::toolchain_flow::winget_present(),
@@ -864,63 +876,11 @@ async fn restart_project(
 /// Refuses anything but the two words rather than letting the database's CHECK
 /// refuse it: the message a user should see names the choices, not the
 /// constraint.
-async fn apply_run_mode(
-    app: &AppState,
-    record: &projects::ProjectRecord,
-    requested: Option<&str>,
-) -> CommandResult<projects::ProjectRecord> {
-    let Some(requested) = requested else {
-        return Ok(record.clone());
-    };
-    let mode = RunMode::from_str(requested).map_err(|_| CommandError {
-        message: format!("`{requested}` is not a run mode. Use DOCKER or HOST."),
-    })?;
-    if record.run_mode == mode.as_str() {
-        return Ok(record.clone());
-    }
-
-    projects::set_run_mode(app.database(), &record.id, mode).await?;
-    projects::find_project(app.database(), &record.id)
-        .await?
-        .ok_or_else(|| CommandError {
-            message: "The project vanished while its run mode was being set.".to_string(),
-        })
-}
-
-/// Change how an existing project runs.
-///
-/// Switching *to* host mode is the choice that gives something up — filesystem
-/// and network isolation, a non-root user — so the interface confirms it every
-/// time it is switched to. Nothing extra is stored for that: accepting is what
-/// calls this, so a project already in host mode is not asked again.
-#[tauri::command]
-async fn set_project_run_mode(
-    state: tauri::State<'_, AppState>,
-    project_id: String,
-    run_mode: String,
-) -> CommandResult<String> {
-    let app: &AppState = &state;
-    let record = projects::find_project(app.database(), &project_id)
-        .await?
-        .ok_or_else(|| CommandError {
-            message: "No project with that id.".to_string(),
-        })?;
-
-    if project_host_core::lifecycle::is_running(&record.status) {
-        return Err(CommandError {
-            message: "Stop the project before changing how it runs.".to_string(),
-        });
-    }
-
-    let updated = apply_run_mode(app, &record, Some(&run_mode)).await?;
-    Ok(updated.run_mode)
-}
-
 /// What the machine is carrying, and what each running project costs.
 ///
-/// Host projects are measured. Docker projects report their declared limit,
-/// which is an upper bound rather than a reading — the daemon's stats endpoint
-/// is not wired up, and this machine has no daemon to wire it against.
+/// Every project is measured: they are all processes of this application, so
+/// each one has a pid and the reading covers its whole process tree. A project
+/// with several processes is the sum of them.
 #[derive(Debug, Serialize)]
 pub struct MachineLoad {
     pub total_memory_bytes: u64,
@@ -939,11 +899,10 @@ pub struct MachineLoad {
 pub struct RunningProjectDto {
     pub project_id: String,
     pub display_name: String,
-    pub run_mode: String,
     pub memory_bytes: u64,
     pub cpu_percent: Option<f32>,
-    /// False for a Docker project, whose figure is its limit rather than a
-    /// measurement. Shown so the interface never presents a bound as a reading.
+    /// Whether the figure is a reading rather than the project's declared
+    /// limit. True whenever the project is running here.
     pub measured: bool,
     /// When the current run started, RFC 3339. The window turns this into an
     /// uptime rather than the core sending a number that is stale the moment
@@ -979,14 +938,15 @@ async fn machine_load(state: tauri::State<'_, AppState>) -> CommandResult<Machin
                     .iter()
                     .find(|port| port.is_primary)
                     .or_else(|| ports.first())
-                    .and_then(|port| port.host_port.or(Some(port.container_port)))
+                    .and_then(|port| port.host_port.or(Some(port.port)))
             });
 
         running.push(RunningProjectDto {
             project_id: project.project_id,
             display_name: project.display_name,
-            measured: project.run_mode == "HOST",
-            run_mode: project.run_mode,
+            // Every project is measured now: they are all processes of this
+            // application, and a pid is a thing that can be read.
+            measured: true,
             memory_bytes: project.usage.memory_bytes,
             cpu_percent: project.usage.cpu_percent,
             started_at: record.and_then(|record| record.started_at),
@@ -1293,6 +1253,59 @@ async fn project_console(
         cursor: console.cursor,
         live: console.live,
     })
+}
+
+// ----------------------------------------------------------- project processes
+
+/// Every process of a project, in start order, with the port each listens on.
+#[tauri::command]
+async fn list_project_processes(
+    state: tauri::State<'_, AppState>,
+    project_id: String,
+) -> CommandResult<Vec<ProcessSummary>> {
+    let app: &AppState = &state;
+    let processes = projects::list_processes(app.database(), &project_id).await?;
+    let ports = projects::list_ports(app.database(), &project_id).await?;
+
+    Ok(processes
+        .into_iter()
+        .map(|process| {
+            let port = ports
+                .iter()
+                .find(|port| port.process_id.as_deref() == Some(process.id.as_str()))
+                .and_then(|port| port.host_port);
+
+            ProcessSummary {
+                id: process.id,
+                name: process.name,
+                start_order: process.start_order,
+                command: process.command,
+                working_dir: process.working_dir,
+                install_command: process.install_command,
+                build_command: process.build_command,
+                status: process.status,
+                port,
+                exit_code: process.exit_code,
+                failure_reason: process.failure_reason,
+                restart_count: process.restart_count,
+            }
+        })
+        .collect())
+}
+
+/// Restart one process, leaving its siblings alone.
+///
+/// Deliberately not "restart the project": the user pointed at one process,
+/// and the others keep their pids. A project-wide restart is `restart_project`.
+#[tauri::command]
+async fn restart_project_process(
+    state: tauri::State<'_, AppState>,
+    project_id: String,
+    process_name: String,
+) -> CommandResult<()> {
+    let app: &AppState = &state;
+    project_host_core::lifecycle::restart_process(app, &project_id, &process_name).await?;
+    Ok(())
 }
 
 // -------------------------------------------------------------- project files
@@ -1881,18 +1894,32 @@ pub struct RuntimeDetail {
     pub runtime: String,
     pub runtime_version: String,
     pub package_manager: String,
+    pub entry_file: Option<String>,
+}
+
+/// One process of a project, as the window shows it.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProcessSummary {
+    pub id: String,
+    pub name: String,
+    pub start_order: i64,
+    pub command: String,
+    pub working_dir: String,
     pub install_command: Option<String>,
     pub build_command: Option<String>,
-    pub start_command: String,
-    pub working_dir: String,
-    pub entry_file: Option<String>,
-    pub health_check_type: String,
-    pub health_check_target: Option<String>,
+    pub status: String,
+    /// The port this process listens on, when it has one.
+    pub port: Option<i64>,
+    pub exit_code: Option<i64>,
+    /// Why it stopped, when it did not stop cleanly.
+    pub failure_reason: Option<String>,
+    pub restart_count: i64,
 }
 
 #[derive(Debug, Serialize)]
 pub struct PortMapping {
-    pub container_port: i64,
+    pub port: i64,
     pub host_port: Option<i64>,
     pub protocol: String,
 }
@@ -1922,7 +1949,6 @@ pub struct ProjectDetail {
     pub status: String,
     pub desired_state: String,
     pub health: String,
-    pub run_mode: String,
     /// `LOW`, `NORMAL` or `HIGH`. Scheduling only — never a cap.
     pub priority: String,
     /// Whether this project running holds automatic sleep off.
@@ -1935,8 +1961,6 @@ pub struct ProjectDetail {
     pub source_url: Option<String>,
     pub source_ref: Option<String>,
     pub source_commit: Option<String>,
-    pub image_tag: Option<String>,
-    pub container_name: Option<String>,
     pub memory_limit_mb: i64,
     pub cpu_limit_cores: f64,
     pub storage_limit_mb: i64,
@@ -1979,7 +2003,6 @@ async fn project_details(
         status: record.status,
         desired_state: record.desired_state,
         health: record.health,
-        run_mode: record.run_mode,
         priority: record.priority,
         keep_awake: record.keep_awake,
         restart_policy: record.restart_policy,
@@ -1990,8 +2013,6 @@ async fn project_details(
         source_url: record.source_url,
         source_ref: record.source_ref,
         source_commit: record.source_commit,
-        image_tag: record.image_tag,
-        container_name: record.container_name,
         memory_limit_mb: record.memory_limit_mb,
         cpu_limit_cores: record.cpu_limit_cores,
         storage_limit_mb: record.storage_limit_mb,
@@ -2007,18 +2028,12 @@ async fn project_details(
             runtime: runtime.runtime,
             runtime_version: runtime.runtime_version,
             package_manager: runtime.package_manager,
-            install_command: runtime.install_command,
-            build_command: runtime.build_command,
-            start_command: runtime.start_command,
-            working_dir: runtime.working_dir,
             entry_file: runtime.entry_file,
-            health_check_type: runtime.health_check_type,
-            health_check_target: runtime.health_check_target,
         }),
         ports: ports
             .into_iter()
             .map(|port| PortMapping {
-                container_port: port.container_port,
+                port: port.port,
                 host_port: port.host_port,
                 protocol: port.protocol,
             })
@@ -2073,9 +2088,9 @@ async fn project_deployments(
         .into_iter()
         .map(|record| DeploymentSummary {
             id: record.id,
+            image_tag: record.image_tag,
             deployment_type: record.deployment_type,
             status: record.status,
-            image_tag: record.image_tag,
             error_code: record.error_code,
             error_message: record.error_message,
             started_at: record.started_at,
@@ -2087,7 +2102,7 @@ async fn project_deployments(
 
 /// Starts, stops and crashes — the restart history the overview shows.
 #[derive(Debug, Serialize)]
-pub struct ContainerEvent {
+pub struct ProjectEvent {
     pub id: String,
     pub event_type: String,
     pub exit_code: Option<i64>,
@@ -2100,12 +2115,12 @@ async fn project_events(
     state: tauri::State<'_, AppState>,
     project_id: String,
     limit: u32,
-) -> CommandResult<Vec<ContainerEvent>> {
+) -> CommandResult<Vec<ProjectEvent>> {
     let app: &AppState = &state;
     let records = projects::list_container_events(app.database(), &project_id, limit).await?;
     Ok(records
         .into_iter()
-        .map(|record| ContainerEvent {
+        .map(|record| ProjectEvent {
             id: record.id,
             event_type: record.event_type,
             exit_code: record.exit_code,
@@ -3013,7 +3028,7 @@ where
     I: IntoIterator<Item = String>,
 {
     let arguments: Vec<String> = arguments.into_iter().collect();
-    let flag = project_host_core::runner::host::SERVE_STATIC_FLAG;
+    let flag = project_host_core::orchestrator::SERVE_STATIC_FLAG;
 
     let index = arguments.iter().position(|value| value == flag)?;
     let root = arguments.get(index + 1)?;
@@ -3052,39 +3067,99 @@ pub fn serve_static(request: StaticServerRequest) -> Result<(), Box<dyn std::err
 
 /// Build and run the application.
 ///
-/// The runtime is started *before* the window so that a database that cannot be
-/// opened is a clear failure at launch rather than an interface full of errors.
+/// The window opens first, on a loading page. Directories, the database and
+/// crash recovery run after that, because waiting for them is what made a
+/// click look like nothing happened. Docker and autostart run later still.
+/// PowerShell is not spawned on this path at all.
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     let config = AppConfig::load(&std::path::PathBuf::from("config.toml"))?;
     let paths = resolve_paths(&config)?;
-
-    let tokio_runtime = tokio::runtime::Runtime::new()?;
-    let mut runtime = tokio_runtime.block_on(Runtime::start(config, paths))?;
+    paths.ensure_all()?;
+    let _logging = match project_host_core::logging::init(&config, paths.log_dir()) {
+        Ok(guard) => Some(guard),
+        Err(error) => {
+            eprintln!("logging could not be initialised: {error}");
+            None
+        }
+    };
 
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
-    tokio_runtime.block_on(async {
-        runtime.spawn_docker_refresher(shutdown_rx.clone());
-        runtime.spawn_usage_sampler(shutdown_rx.clone());
-        // The task that makes a stored status mean something. Without it the
-        // database is only ever written when a lifecycle call returns, so a
-        // project that dies on its own reads as running until somebody presses
-        // a button — which is the exact failure `reconcile` was written for.
-        runtime.spawn_reconciler(shutdown_rx.clone());
-        runtime.spawn_power_manager(shutdown_rx);
-    });
-
-    let state = runtime.state().clone();
-    // Kept alive for the life of the process so the shutdown path can run it.
-    let runtime = Arc::new(tokio::sync::Mutex::new(Some(runtime)));
+    let launch = Arc::new(Mutex::new(LaunchStatus::Starting));
+    let launch_for_thread = launch.clone();
+    let core_thread = Arc::new(Mutex::new(None::<std::thread::JoinHandle<()>>));
+    let core_thread_for_setup = core_thread.clone();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .manage(state)
+        .manage(launch)
         .manage(FileImportCancels::default())
         .manage(UpdateActivity::default())
         .manage(Metrics::default())
+        .setup(move |app| {
+            let handle = app.handle().clone();
+            let thread = std::thread::Builder::new()
+                .name("panel-core".into())
+                .spawn(move || {
+                    let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build()
+                    else {
+                        tracing::error!("the core runtime could not be created");
+                        return;
+                    };
+                    runtime.block_on(async move {
+                        match Runtime::start(config, paths).await {
+                            Ok(mut started) => {
+                                started.spawn_usage_sampler(shutdown_rx.clone());
+                                started.spawn_reconciler(shutdown_rx.clone());
+                                started.spawn_power_manager(shutdown_rx.clone());
+
+                                handle.manage(started.state().clone());
+                                handle.manage(started.diagnostics_handle());
+                                *launch_for_thread
+                                    .lock()
+                                    .unwrap_or_else(|poisoned| poisoned.into_inner()) =
+                                    LaunchStatus::Ready;
+                                let _ = handle.emit("core://ready", ());
+
+                                started.complete_optional_startup().await;
+                                started.start_automatic_workloads().await;
+
+                                let mut shutdown_rx = shutdown_rx;
+                                loop {
+                                    if *shutdown_rx.borrow() {
+                                        break;
+                                    }
+                                    if shutdown_rx.changed().await.is_err() {
+                                        break;
+                                    }
+                                }
+                                started.shutdown().await;
+                            }
+                            Err(error) => {
+                                tracing::error!(%error, "the core could not start");
+                                let message = error.to_string();
+                                *launch_for_thread
+                                    .lock()
+                                    .unwrap_or_else(|poisoned| poisoned.into_inner()) =
+                                    LaunchStatus::Failed {
+                                        message: message.clone(),
+                                    };
+                                let _ = handle.emit("core://failed", message);
+                            }
+                        }
+                    });
+                })
+                .map_err(|error| error.to_string())?;
+            *core_thread_for_setup
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(thread);
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             system_status,
+            startup_diagnostics,
+            launch_status,
             list_projects,
             create_project,
             start_project,
@@ -3094,7 +3169,8 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             restart_project,
             kill_project,
             host_projects_running,
-            set_project_run_mode,
+            list_project_processes,
+            restart_project_process,
             machine_load,
             power_status,
             set_power_mode,
@@ -3142,7 +3218,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             project_events
         ])
         .build(tauri::generate_context!())?
-        .run(move |app, event| {
+        .run(move |_app, event| {
             if let tauri::RunEvent::ExitRequested { .. } = event {
                 // Stop host projects and close the database cleanly, so the next
                 // start does not have to run recovery. Project *containers* are
@@ -3151,9 +3227,12 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
                 // die with it regardless — stopping them deliberately is what
                 // gets STOPPED recorded instead of a row claiming they run.
                 let _ = shutdown_tx.send_replace(true);
-                if let Some(runtime) = runtime.blocking_lock().take() {
-                    app.state::<AppState>();
-                    tokio_runtime.block_on(runtime.shutdown());
+                if let Some(thread) = core_thread
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .take()
+                {
+                    let _ = thread.join();
                 }
             }
         });

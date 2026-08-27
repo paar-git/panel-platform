@@ -129,7 +129,7 @@ function StageRail({ screen }: { screen: UpdateScreen }) {
               aria-current={current ? 'step' : undefined}
               className={`grid h-5 w-5 shrink-0 place-items-center rounded-full ${
                 done
-                  ? 'bg-accent text-white'
+                  ? 'bg-accent text-canvas'
                   : current
                     ? 'bg-accent-soft text-accent'
                     : 'bg-raised text-faint'

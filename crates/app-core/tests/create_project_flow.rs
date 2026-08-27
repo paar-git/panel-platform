@@ -18,7 +18,7 @@ use project_host_api_types::{
     ProjectType,
 };
 use project_host_core::runtime_plan::{plan_named, supported_runtimes};
-use project_host_database::projects::{self, NewPort, NewProject};
+use project_host_database::projects::{self, NewPort, NewProcess, NewProject};
 use project_host_database::{environment, Database};
 use project_host_project_manager::names::Slug;
 
@@ -55,9 +55,6 @@ fn new_project(
         source_url: source_url.map(str::to_string),
         source_ref: source_ref.map(str::to_string),
         source_commit: source_commit.map(str::to_string),
-        container_name: format!("projecthost-{slug}"),
-        network_name: format!("projecthost-net-{slug}"),
-        volume_name: format!("projecthost-data-{slug}"),
         autostart: false,
         restart_policy: "UNLESS_STOPPED".to_string(),
         network_mode: "INTERNET".to_string(),
@@ -66,12 +63,14 @@ fn new_project(
         storage_limit_mb: 2048,
         process_limit: 128,
         runtime: plan.spec.clone(),
+        processes: vec![NewProcess::simple("main", 0, "node index.js")],
         ports: vec![NewPort {
-            container_port: plan.container_port,
+            port: plan.port,
             host_port: Some(host_port),
             protocol: "tcp".to_string(),
             bind_address: "127.0.0.1".to_string(),
             is_primary: true,
+            process_id: None,
         }],
     }
 }

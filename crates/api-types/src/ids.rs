@@ -135,6 +135,10 @@ prefixed_id!(
     /// A published port allocation.
     PortId, "prt");
 prefixed_id!(
+    /// One process of a project. A project has at least one and may have
+    /// several — an API, a web dev server, a worker.
+    ProcessId, "prc");
+prefixed_id!(
     /// One observed container lifecycle event.
     EventId, "evt");
 prefixed_id!(

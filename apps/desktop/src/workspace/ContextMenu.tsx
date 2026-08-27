@@ -161,7 +161,7 @@ export default function ContextMenu({
             }}
             className={`flex w-full items-center gap-2.5 px-3 py-1 text-left ${
               entry.danger ? 'text-red-300' : 'text-vs-text'
-            } ${index === focused ? 'bg-accent text-white' : ''} disabled:cursor-default disabled:text-vs-dim disabled:opacity-50 ${
+            } ${index === focused ? 'bg-accent text-canvas' : ''} disabled:cursor-default disabled:text-vs-dim disabled:opacity-50 ${
               index === focused && entry.enabled === false ? 'bg-transparent' : ''
             }`}
           >

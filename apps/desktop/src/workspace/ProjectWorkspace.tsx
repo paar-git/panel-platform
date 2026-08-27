@@ -204,7 +204,6 @@ import {
 export default function ProjectWorkspace({
   project,
   status,
-  dockerAvailable,
   onRefreshProjects,
   onLeave,
   onOpenSettings,
@@ -212,22 +211,12 @@ export default function ProjectWorkspace({
 }: {
   project: ProjectSummary;
   status: SystemStatus | null;
-  dockerAvailable: boolean;
   onRefreshProjects: () => Promise<void>;
   onLeave: () => void;
   onOpenSettings: () => void;
   /** Opens the update manager, which is rendered by the shell above this one. */
   onOpenUpdates: () => void;
 }) {
-  /**
-   * Whether the daemon's absence is actually this project's problem.
-   *
-   * A `HOST` project is a process on this machine; Docker has nothing to do
-   * with it. Testing `dockerAvailable` on its own is the mistake that left a
-   * Docker-less machine unable to start anything at all.
-   */
-  const blockedByDocker = project.runMode !== 'HOST' && !dockerAvailable;
-
   // ------------------------------------------------------------------ state
   const [listings, setListings] = useState<Record<string, FileEntry[]>>({});
   const [expanded, setExpanded] = useState<string[]>([]);
@@ -2125,12 +2114,8 @@ export default function ProjectWorkspace({
         id: 'project.start',
         title: 'Start Project',
         category: 'Run',
-        // `needsDocker`, not `dockerAvailable`: a host project runs as a
-        // process on this machine and has never needed a daemon. Gating on
-        // the daemon alone disabled Start for every project on a machine
-        // without one — which, now that HOST is the default, is every project.
-        enabled: !running && !blockedByDocker && busyAction === null,
-        reason: blockedByDocker ? 'Docker is not available' : 'The project is already running',
+        enabled: !running && busyAction === null,
+        reason: 'The project is already running',
         run: () => void runProject('start'),
       },
       {
@@ -2176,7 +2161,6 @@ export default function ProjectWorkspace({
     busyAction,
     copyToClipboard,
     dirtyCount,
-    dockerAvailable,
     editor.buffers,
     expanded,
     layout.panelTab,
@@ -2822,7 +2806,7 @@ export default function ProjectWorkspace({
       id: 'run',
       label: 'Start Project',
       icon: 'play',
-      enabled: project.status !== 'RUNNING' && !blockedByDocker && busyAction === null,
+      enabled: project.status !== 'RUNNING' && !false && busyAction === null,
       run: () => runCommand('project.start'),
     },
   ];
@@ -2952,11 +2936,7 @@ export default function ProjectWorkspace({
                 <SourceControlPanel projectRoot={projectRoot} />
               )}
               {layout.activityView === 'run' && (
-                <RunPanel
-                  project={project}
-                  dockerAvailable={dockerAvailable}
-                  onOpenTerminal={() => showPanel('terminal')}
-                />
+                <RunPanel project={project} onOpenTerminal={() => showPanel('terminal')} />
               )}
               {layout.activityView === 'extensions' && <ExtensionsPanel />}
               {layout.activityView === 'account' && (
@@ -3066,7 +3046,6 @@ export default function ProjectWorkspace({
                     terminal: (
                       <TerminalPanel
                         project={project}
-                        dockerAvailable={dockerAvailable}
                         busy={busyAction}
                         onAction={(action) => void runProject(action)}
                         lines={linesForChannel(output, 'Project')}
@@ -3089,7 +3068,6 @@ export default function ProjectWorkspace({
       <StatusBar
         projectStatus={project.status}
         running={project.status === 'RUNNING'}
-        dockerAvailable={dockerAvailable}
         errors={errors}
         warnings={warnings}
         language={buffer ? languageName(buffer.language) : null}

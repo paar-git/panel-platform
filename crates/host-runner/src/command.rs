@@ -85,7 +85,12 @@ pub fn start_command(inputs: CommandInputs<'_>) -> Result<ProcessCommand, Comman
     if words.is_empty() {
         return Err(CommandError::NoStartCommand);
     }
-    let program = resolve_program(&words.remove(0), inputs.command, inputs.resolver)?;
+    let program = resolve_program(
+        &words.remove(0),
+        inputs.command,
+        inputs.project_directory,
+        inputs.resolver,
+    )?;
 
     let mut env = inputs.env;
     if let Some(port) = inputs.port {
@@ -106,8 +111,13 @@ pub fn start_command(inputs: CommandInputs<'_>) -> Result<ProcessCommand, Comman
 /// Three cases, in order:
 ///
 /// * A word that already contains a separator is a path the user wrote. It is
-///   passed through untouched — resolving it against `PATH` would be ignoring
-///   what they said.
+///   not resolved against `PATH` — that would be ignoring what they said — but
+///   a *relative* one is anchored to the project's directory. It has to be:
+///   `Command` hands the program name to the operating system, and Windows
+///   resolves a relative program against *this* process's working directory
+///   rather than the child's `current_dir`. `./server` would be looked for
+///   beside the application rather than beside the project, and a build that
+///   had just succeeded would start nothing.
 /// * A bare name is resolved against `PATH`, with the platform's executable
 ///   suffixes. This is the case that matters: `npm` on Windows is `npm.cmd`.
 /// * A bare name that resolves to nothing is refused *by name*, before anything
@@ -116,10 +126,26 @@ pub fn start_command(inputs: CommandInputs<'_>) -> Result<ProcessCommand, Comman
 fn resolve_program(
     word: &str,
     command: &str,
+    project_directory: &Path,
     resolver: &dyn ExecutableResolver,
 ) -> Result<String, CommandError> {
     if word.contains('/') || word.contains('\\') {
-        return Ok(word.to_string());
+        let written = Path::new(word);
+        if written.is_absolute() {
+            return Ok(word.to_string());
+        }
+        // Component by component rather than a plain `join`, so the `./` that
+        // a start command almost always carries does not survive into the
+        // middle of the path as `demo\.\server`. Spawnable either way, but
+        // the path is shown to the user when a start fails.
+        let mut anchored = project_directory.to_path_buf();
+        for part in written.components() {
+            match part {
+                std::path::Component::CurDir => {}
+                other => anchored.push(other),
+            }
+        }
+        return Ok(anchored.to_string_lossy().into_owned());
     }
 
     match resolver.resolve(word) {
@@ -317,9 +343,11 @@ mod tests {
     }
 
     /// A path the user wrote is what the user meant. Resolving it against
-    /// `PATH` would silently run a different program with the same file name.
+    /// `PATH` would silently run a different program with the same file name —
+    /// so a machine with nothing installed still gets the path it was given,
+    /// rather than `ProgramNotFound`.
     #[test]
-    fn a_program_written_as_a_path_is_passed_through_untouched() {
+    fn a_program_written_as_a_path_is_not_looked_up_on_path() {
         let toolchain = found();
         let nothing = FakeMachine { installed: vec![] };
 
@@ -330,7 +358,56 @@ mod tests {
             &nothing,
         ))
         .expect("command");
-        assert_eq!(command.program, "./bin/server");
+        assert!(
+            command.program.ends_with(r"bin\server") || command.program.ends_with("bin/server"),
+            "not the path that was written: {}",
+            command.program
+        );
+        assert_eq!(command.args, vec!["--config", "prod.toml"]);
+    }
+
+    /// A relative program is anchored to the project, not to wherever this
+    /// application happens to have been started from.
+    ///
+    /// Windows makes this load-bearing rather than tidy: `CreateProcess`
+    /// resolves a relative program against the *calling* process's working
+    /// directory and ignores the child's. `./server`, which is what a Go
+    /// project's build produces and its start command names, would be looked
+    /// for beside the application — where it is not.
+    #[test]
+    fn a_relative_program_is_anchored_to_the_project_directory() {
+        let toolchain = found();
+        let nothing = FakeMachine { installed: vec![] };
+
+        let command =
+            start_command(inputs("GO", "./server", &toolchain, &nothing)).expect("command");
+
+        // Compared as a path rather than as text: the separator the join uses
+        // is the platform's, and asserting on the string would only pass on
+        // whichever platform wrote the assertion.
+        assert_eq!(
+            std::path::Path::new(&command.program),
+            std::path::Path::new("/projects/demo").join("server"),
+            "not anchored to the project: {}",
+            command.program
+        );
+    }
+
+    /// An absolute path is already an answer, and joining it to the project
+    /// would corrupt it.
+    #[test]
+    fn an_absolute_program_is_passed_through_untouched() {
+        let toolchain = found();
+        let nothing = FakeMachine { installed: vec![] };
+
+        let written = if cfg!(windows) {
+            "C:/tools/server"
+        } else {
+            "/usr/local/bin/server"
+        };
+        let command =
+            start_command(inputs("GENERIC", written, &toolchain, &nothing)).expect("command");
+        assert_eq!(command.program, written);
     }
 
     /// Without a container there is no port mapping, so the process has to be

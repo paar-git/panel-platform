@@ -25,7 +25,6 @@ function project(
     status,
     desiredState: 'RUNNING',
     color: null,
-    runMode: 'DOCKER',
   };
 }
 

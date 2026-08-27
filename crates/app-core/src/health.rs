@@ -14,7 +14,7 @@ use crate::state::AppState;
 pub enum Health {
     /// Everything the application itself needs is working.
     Ok,
-    /// The application is running, but something it depends on is not. Docker being
+    /// The application is running, but something it depends on is not. A
     /// absent is the common case, and it is deliberately not `Fail`: projects
     /// cannot start, yet files, backups and settings all work.
     Degraded,
@@ -77,21 +77,6 @@ pub async fn report(state: &AppState) -> HealthReport {
     };
     let database_failed = database_check.status == Health::Fail;
     checks.push(database_check);
-
-    let docker = state.docker_status().await;
-    checks.push(Check {
-        name: "docker".to_string(),
-        status: if docker.available {
-            Health::Ok
-        } else {
-            Health::Degraded
-        },
-        detail: if docker.available {
-            docker.version.clone()
-        } else {
-            docker.install_hint.clone().or_else(|| docker.error.clone())
-        },
-    });
 
     let status = if database_failed {
         Health::Fail

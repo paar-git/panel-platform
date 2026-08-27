@@ -36,6 +36,16 @@ pub struct SystemScanner;
 
 impl SystemProbe for SystemScanner {
     fn snapshot(&self) -> SystemSnapshot {
+        // The fast path. Subprocess probes (PowerShell CIM, `wsl --status`,
+        // `lspci`) live in [`Self::snapshot_full`]: they hang after a reboot
+        // and used to keep the window closed.
+        self.snapshot_local()
+    }
+}
+
+impl SystemScanner {
+    /// sysinfo plus cheap file reads. Safe to call before the window opens.
+    pub fn snapshot_local(&self) -> SystemSnapshot {
         let mut system = sysinfo::System::new();
         system.refresh_memory();
         system.refresh_cpu_all();
@@ -55,8 +65,19 @@ impl SystemProbe for SystemScanner {
             sysinfo::System::os_version(),
         );
 
-        platform_specific::enrich(&mut snapshot);
+        platform_specific::identify(&mut snapshot);
 
+        snapshot
+    }
+
+    /// The full picture, including subprocess probes that can be slow.
+    ///
+    /// Used when the user asks a question that needs GPU, WSL or firmware
+    /// virtualization — toolchain install, the compatibility screen — not when
+    /// the window is trying to appear.
+    pub fn snapshot_full(&self) -> SystemSnapshot {
+        let mut snapshot = self.snapshot_local();
+        platform_specific::enrich(&mut snapshot);
         snapshot
     }
 }
@@ -102,6 +123,44 @@ mod tests {
         assert!(
             !matches!(snapshot.arch, Architecture::Other(ref name) if name == "unknown"),
             "the architecture is always knowable from the compiled target"
+        );
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn the_startup_snapshot_does_not_wait_for_powershell_or_wsl() {
+        // GPU, firmware virtualization and WSL status are only knowable here
+        // via PowerShell CIM queries and `wsl --status`. Those commands hang
+        // after a reboot, with no network, or when WSL is wedged — and that
+        // hang used to sit in front of the window. The snapshot the
+        // application takes before opening the window must not ask them.
+        let snapshot = SystemScanner.snapshot();
+        assert_eq!(
+            snapshot.virtualization,
+            crate::snapshot::VirtualizationInfo::default(),
+            "virtualization on Windows comes from CIM; reading it here means the window waited"
+        );
+        assert!(
+            snapshot.gpus.is_empty(),
+            "GPU names come from Win32_VideoController; reading them here means the window waited"
+        );
+        assert!(
+            snapshot.windows.is_some(),
+            "the OS still has to be identifiable as Windows, or toolchain install thinks the host is unknown"
+        );
+    }
+
+    #[test]
+    fn the_startup_snapshot_finishes_quickly() {
+        // A bound rather than a guess. sysinfo is local; anything that needs a
+        // subprocess to answer cannot make this. Two seconds is already longer
+        // than a person will wait for a click to produce a window.
+        let started = std::time::Instant::now();
+        let _snapshot = SystemScanner.snapshot();
+        let elapsed = started.elapsed();
+        assert!(
+            elapsed < std::time::Duration::from_secs(2),
+            "startup snapshot took {elapsed:?}; a hung wsl or PowerShell is sitting on the launch path"
         );
     }
 }

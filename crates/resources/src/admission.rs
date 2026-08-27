@@ -160,7 +160,6 @@ mod tests {
         RunningProject {
             project_id: format!("prj_{name}"),
             display_name: name.to_string(),
-            run_mode: "HOST".to_string(),
             usage: Usage {
                 memory_bytes: (memory_gb * GB as f64) as u64,
                 cpu_percent: Some(5.0),

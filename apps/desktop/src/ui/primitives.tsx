@@ -37,8 +37,8 @@ export function PageShell({
     <div className="mx-auto w-full max-w-[1200px] px-8 py-6">
       <header className="mb-6 flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0">
-          <h1 className="text-[20px] leading-tight font-semibold tracking-tight">{title}</h1>
-          {description && <p className="mt-1 text-[13px] text-muted">{description}</p>}
+          <h1 className="text-[28px] leading-tight font-semibold tracking-[-0.025em]">{title}</h1>
+          {description && <p className="mt-0.5 text-[13px] text-muted">{description}</p>}
         </div>
         {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
       </header>
@@ -59,7 +59,7 @@ export function Card({
 }) {
   return (
     <div
-      className={`rounded-[7px] border border-edge bg-surface ${
+      className={`rounded-[12px] border border-edge bg-surface ${
         interactive ? 'transition-colors hover:border-edge-strong' : ''
       } ${className}`}
     >
@@ -79,10 +79,10 @@ export function CardHeader({
   actions?: ReactNode;
 }) {
   return (
-    <div className="flex items-start justify-between gap-4 border-b border-edge px-4 py-3">
+    <div className="flex items-start justify-between gap-4 border-b border-edge px-4 py-[13px]">
       <div className="min-w-0">
-        <h2 className="text-[14px] font-medium">{title}</h2>
-        {subtitle && <p className="mt-0.5 text-[12px] text-muted">{subtitle}</p>}
+        <h2 className="text-[13.5px] font-semibold">{title}</h2>
+        {subtitle && <p className="mt-px text-[12px] text-faint">{subtitle}</p>}
       </div>
       {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
     </div>
@@ -102,7 +102,7 @@ export function DataRow({
   hint?: string;
 }) {
   return (
-    <div className="flex items-baseline justify-between gap-6 border-b border-edge/60 py-2 last:border-b-0">
+    <div className="flex items-baseline justify-between gap-6 border-b border-edge/60 px-4 py-[9px] last:border-b-0">
       <span className="shrink-0 text-[13px] text-muted" title={hint}>
         {label}
       </span>
@@ -147,8 +147,11 @@ export function Button({
   pending?: boolean;
 }) {
   const variants: Record<ButtonVariant, string> = {
-    primary: 'bg-accent text-white hover:bg-accent-hover',
-    default: 'border border-edge bg-raised text-ink hover:border-edge-strong hover:bg-overlay',
+    // The primary reads as a lit pill: the accent carries it, and the label is
+    // the canvas colour rather than white, so it stays legible under a light
+    // accent as well as a dark one.
+    primary: 'bg-accent text-canvas font-semibold hover:brightness-110',
+    default: 'border border-edge-strong bg-transparent text-ink hover:border-faint',
     ghost: 'text-muted hover:bg-raised hover:text-ink',
     danger: 'bg-danger/15 text-danger hover:bg-danger/25',
   };
@@ -160,8 +163,8 @@ export function Button({
       disabled={disabled || pending}
       title={title}
       aria-busy={pending}
-      className={`inline-flex shrink-0 items-center justify-center gap-1.5 rounded-[5px] font-medium transition-colors duration-100 disabled:pointer-events-none disabled:opacity-40 ${
-        size === 'sm' ? 'h-[26px] px-2 text-[12px]' : 'h-[30px] px-2.5 text-[12.5px]'
+      className={`inline-flex shrink-0 items-center justify-center gap-1.5 rounded-full font-medium transition-[background-color,border-color,filter] duration-100 disabled:pointer-events-none disabled:opacity-40 ${
+        size === 'sm' ? 'h-[28px] px-3 text-[12px]' : 'h-[32px] px-4 text-[12.5px]'
       } ${full ? 'w-full' : ''} ${variants[variant]}`}
     >
       {pending ? (
@@ -199,8 +202,8 @@ export function IconButton({
       title={label}
       aria-label={label}
       aria-pressed={active}
-      className={`inline-grid shrink-0 place-items-center rounded-[5px] disabled:pointer-events-none disabled:opacity-40 ${
-        size === 'sm' ? 'h-[26px] w-[26px]' : 'h-[30px] w-[30px]'
+      className={`inline-grid shrink-0 place-items-center rounded-full disabled:pointer-events-none disabled:opacity-40 ${
+        size === 'sm' ? 'h-[26px] w-[26px]' : 'h-[28px] w-[28px]'
       } ${active ? 'bg-raised text-ink' : 'text-muted hover:bg-raised hover:text-ink'}`}
     >
       <Icon name={icon} size={size === 'sm' ? 14 : 16} />
@@ -376,7 +379,7 @@ export function Meter({
           {unknown ? 'not measured' : `${Math.round(clamped)}%`}
         </span>
       </div>
-      <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-canvas">
+      <div className="mt-[7px] h-[5px] overflow-hidden rounded-full bg-edge">
         {!unknown && (
           <div
             className={`h-full rounded-full transition-[width] duration-300 ${TONES[derived].dot}`}
@@ -384,7 +387,7 @@ export function Meter({
           />
         )}
       </div>
-      {caption && <p className="mt-1 truncate text-[11px] text-faint">{caption}</p>}
+      {caption && <p className="tabular mt-1.5 truncate text-[11px] text-faint">{caption}</p>}
     </div>
   );
 }
@@ -414,8 +417,12 @@ export function Stat({
 
   const body = (
     <>
-      <p className="text-[12px] text-muted">{label}</p>
-      <p className={`tabular mt-1 text-[22px] leading-none font-semibold ${colour}`}>{value}</p>
+      <p className="text-[11px] font-semibold tracking-[0.08em] text-faint uppercase">{label}</p>
+      <p
+        className={`tabular mt-1.5 text-[30px] leading-none font-semibold tracking-tight ${colour}`}
+      >
+        {value}
+      </p>
     </>
   );
 
@@ -425,14 +432,14 @@ export function Stat({
         type="button"
         onClick={onClick}
         title={hint}
-        className="rounded-[7px] border border-edge bg-surface px-3 py-2.5 text-left transition-colors hover:border-edge-strong hover:bg-raised"
+        className="rounded-[12px] border border-edge bg-surface px-4 py-3.5 text-left transition-colors hover:border-edge-strong hover:bg-raised"
       >
         {body}
       </button>
     );
   }
   return (
-    <div title={hint} className="rounded-[7px] border border-edge bg-surface px-3 py-2.5">
+    <div title={hint} className="rounded-[12px] border border-edge bg-surface px-4 py-3.5">
       {body}
     </div>
   );
@@ -466,7 +473,7 @@ export function EmptyState({
 }) {
   return (
     <div className="flex flex-col items-center px-6 py-12 text-center">
-      <span className="mb-3 grid h-10 w-10 place-items-center rounded-[7px] border border-edge bg-raised text-muted">
+      <span className="mb-3 grid h-10 w-10 place-items-center rounded-[10px] border border-edge bg-raised text-muted">
         <Icon name={icon} size={22} />
       </span>
       <h3 className="text-[15px] font-medium">{title}</h3>
@@ -508,7 +515,7 @@ export function Banner({
 
   return (
     <div
-      className={`flex flex-wrap items-center gap-x-3 gap-y-2 rounded-[7px] border px-3 py-2.5 ${edge}`}
+      className={`flex flex-wrap items-center gap-x-3 gap-y-2 rounded-[10px] border px-3 py-2.5 ${edge}`}
     >
       <span className={`h-2 w-2 shrink-0 rounded-full ${TONES[tone].dot}`} aria-hidden />
       <div className="min-w-[200px] flex-1">

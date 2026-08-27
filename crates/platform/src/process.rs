@@ -75,6 +75,36 @@ use crate::error::PlatformError;
 #[cfg(windows)]
 const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
 
+/// `CREATE_NO_WINDOW`, from `winbase.h`.
+///
+/// A console-subsystem program — PowerShell, `wsl`, `cmd` — otherwise opens a
+/// visible terminal for as long as it runs. That flash on launch is what this
+/// flag exists to prevent.
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+/// Prevent a console window from appearing when this command is spawned.
+///
+/// No-op off Windows. Callers still redirect stdio; this is the half that stops
+/// Windows allocating a console in the first place.
+pub fn hide_console(command: &mut std::process::Command) {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+    let _ = command;
+}
+
+/// The same as [`hide_console`], for a Tokio command.
+pub fn hide_console_async(command: &mut Command) {
+    #[cfg(windows)]
+    {
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+    let _ = command;
+}
+
 /// Configure a command so its children can be ended as a group.
 ///
 /// Call this before spawning. It is the half of the capability that must happen
@@ -250,6 +280,14 @@ pub fn descendants(root: u32) -> Vec<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hide_console_is_safe_to_call_on_this_platform() {
+        let mut command = std::process::Command::new("echo");
+        hide_console(&mut command);
+        let mut async_command = Command::new("echo");
+        hide_console_async(&mut async_command);
+    }
 
     /// A command that runs long enough to be observed, and that itself spawns a
     /// child that does the same. The point of the test is the grandchild.

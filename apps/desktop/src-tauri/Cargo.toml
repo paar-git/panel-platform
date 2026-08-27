@@ -20,7 +20,6 @@ project-host-core = { version = "0.1.0", path = "../../../crates/app-core" }
 project-host-database = { version = "0.1.0", path = "../../../crates/database" }
 project-host-power = { version = "0.1.0", path = "../../../crates/power" }
 project-host-api-types = { version = "0.1.0", path = "../../../crates/api-types" }
-project-host-docker-manager = { version = "0.1.0", path = "../../../crates/docker-manager" }
 project-host-file-manager = { version = "0.1.0", path = "../../../crates/file-manager" }
 project-host-platform = { version = "0.1.0", path = "../../../crates/platform" }
 project-host-toolchain = { version = "0.1.0", path = "../../../crates/toolchain" }

@@ -294,7 +294,7 @@ function DialogButton({
         danger
           ? 'bg-red-700 text-white hover:bg-red-600'
           : primary
-            ? 'bg-accent text-white hover:brightness-110'
+            ? 'bg-accent text-canvas hover:brightness-110'
             : 'border border-vs-border text-vs-text hover:bg-white/5'
       }`}
     >

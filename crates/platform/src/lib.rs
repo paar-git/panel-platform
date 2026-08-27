@@ -34,7 +34,10 @@ pub use info::{Capabilities, PlatformInfo};
 pub use paths::{platform_paths, PathProvider, StandardPaths};
 pub use ports::{is_free, owner_of, PortOwner};
 pub use probe::{FixedProbe, SystemProbe, SystemScanner};
-pub use process::{as_group_leader, descendants, is_alive, kill_tree, terminate_tree};
+pub use process::{
+    as_group_leader, descendants, hide_console, hide_console_async, is_alive, kill_tree,
+    terminate_tree,
+};
 pub use secure_storage::{
     open_secure_storage, FileStorage, SecureStorageProvider, StorageBackend, StorageError,
 };

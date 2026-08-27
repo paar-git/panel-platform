@@ -33,11 +33,17 @@ pub async fn running_projects(app: &AppState) -> Vec<RunningProject> {
     }
 
     let mut projects = Vec::with_capacity(handles.len());
-    for (id, handle) in handles {
-        let observed = handle.observe();
-        if observed.status != project_host_host_runner::HostStatus::Running {
+    for (id, processes) in handles {
+        // The project's first running process. Priority and the sleep hold are
+        // per project, not per process, and the operating system applies both
+        // to a process tree — so the leader is the one to name.
+        let Some(observed) = processes
+            .iter()
+            .map(|process| process.handle.observe())
+            .find(|observed| observed.status == project_host_host_runner::HostStatus::Running)
+        else {
             continue;
-        }
+        };
 
         let Ok(Some(row)) =
             project_host_database::projects::find_project(app.database(), &id).await

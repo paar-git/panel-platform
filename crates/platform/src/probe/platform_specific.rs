@@ -113,70 +113,178 @@ pub fn parse_gpu_lines(stdout: &str) -> Vec<GpuInfo> {
         .collect()
 }
 
+/// How long a probe subprocess may run before it is treated as absent.
+///
+/// Short on purpose. These answers decorate a snapshot; they must never decide
+/// whether the window opens. `wsl --status` in particular is known to hang
+/// indefinitely after a reboot, with no network, or when the WSL service is
+/// wedged.
+const SUBPROCESS_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// How a Windows probe talks to PowerShell without a console window.
+///
+/// `powershell.exe` rather than `powershell`: the latter can resolve to a Store
+/// alias that allocates a visible console even when `CREATE_NO_WINDOW` is set.
+/// `-WindowStyle Hidden` is the belt to that flag's braces — some hosts honour
+/// one and not the other.
+#[allow(dead_code)] // Used from the `#[cfg(windows)]` blocks below, and by the tests.
+fn hidden_powershell(script: &str) -> (&'static str, Vec<String>) {
+    (
+        "powershell.exe",
+        vec![
+            "-NoProfile".to_string(),
+            "-NonInteractive".to_string(),
+            "-WindowStyle".to_string(),
+            "Hidden".to_string(),
+            "-Command".to_string(),
+            script.to_string(),
+        ],
+    )
+}
+
 /// Run a command and return its stdout, or `None` if it could not be run.
 ///
 /// Never propagates a failure: a machine where PowerShell is unavailable still
 /// gets a snapshot, with these fields left unknown.
 #[allow(dead_code)] // Used from the `#[cfg]` blocks below, one platform at a time.
 fn output_of(program: &str, args: &[&str]) -> Option<String> {
-    let output = std::process::Command::new(program)
-        .args(args)
-        .output()
-        .ok()?;
-    output
-        .status
-        .success()
-        .then(|| String::from_utf8_lossy(&output.stdout).to_string())
+    output_of_timed(program, args, SUBPROCESS_TIMEOUT)
 }
 
-/// Fill in the platform-specific groups. Failures leave fields unknown.
+#[allow(dead_code)] // Windows enrich; the timeout tests call `output_of` directly.
+fn output_of_args(program: &str, args: &[String]) -> Option<String> {
+    let borrowed: Vec<&str> = args.iter().map(String::as_str).collect();
+    output_of(program, &borrowed)
+}
+
+/// Run a command, but stop waiting when `timeout` elapses.
+///
+/// Killing the child is load-bearing: without it a hung `wsl` or PowerShell
+/// keeps running after we have moved on, and the next start can pile another
+/// one on top.
+///
+/// stdout is drained on its own thread rather than after the exit. A pipe holds
+/// only a buffer's worth, so a child that writes more than that blocks on the
+/// write until somebody reads — and if the only reader waits for the exit
+/// first, the two wait for each other until the deadline kills the child. A
+/// machine with several video controllers is enough to reach that, and the
+/// answer would be lost as a timeout rather than merely arriving slowly.
+fn output_of_timed(program: &str, args: &[&str], timeout: std::time::Duration) -> Option<String> {
+    use std::io::Read;
+
+    let mut command = std::process::Command::new(program);
+    command
+        .args(args)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null());
+    crate::process::hide_console(&mut command);
+
+    let mut child = command.spawn().ok()?;
+    let pipe = child.stdout.take();
+    let draining = std::thread::spawn(move || {
+        let mut stdout = String::new();
+        if let Some(mut pipe) = pipe {
+            let _ = pipe.read_to_string(&mut stdout);
+        }
+        stdout
+    });
+
+    let started = std::time::Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                // The child is gone, so its end of the pipe is closed and the
+                // reader is at EOF or about to be. Joining cannot outlast it.
+                let stdout = draining.join().unwrap_or_default();
+                return status.success().then_some(stdout);
+            }
+            Ok(None) => {
+                if started.elapsed() >= timeout {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return None;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+            Err(_) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return None;
+            }
+        }
+    }
+}
+
+/// Mark which operating system this is, without spawning anything.
+///
+/// File reads are fine: `/proc/cpuinfo` and `/etc/os-release` cannot hang the
+/// way `wsl --status` can. Windows identity is recorded as "this is Windows"
+/// with WSL unknown — filling WSL in is [`enrich`]'s job.
+pub(crate) fn identify(snapshot: &mut SystemSnapshot) {
+    #[cfg(windows)]
+    {
+        snapshot.windows = Some(WindowsInfo::default());
+    }
+
+    #[cfg(unix)]
+    {
+        if let Ok(contents) = std::fs::read_to_string("/proc/cpuinfo") {
+            snapshot.virtualization = parse_cpuinfo_flags(&contents);
+        }
+        snapshot.linux = Some(
+            std::fs::read_to_string("/etc/os-release")
+                .map(|contents| super::os::parse_os_release(&contents))
+                .unwrap_or_default(),
+        );
+    }
+}
+
+/// Fill in the facts that need a subprocess. Failures leave fields unknown.
+///
+/// Not called before the window opens. The commands below hang after a reboot
+/// or when WSL is wedged, and a snapshot that waited for them was a snapshot
+/// that kept the window closed.
 pub(crate) fn enrich(snapshot: &mut SystemSnapshot) {
     #[cfg(windows)]
     {
-        // A subprocess rather than FFI: the workspace forbids `unsafe`, so
-        // `WinVerifyTrust`-style direct calls are unavailable. This is the same
-        // reasoning that chose `taskkill` in the host run mode design.
-        if let Some(stdout) = output_of(
-            "powershell",
-            &[
-                "-NoProfile",
-                "-NonInteractive",
-                "-Command",
+        // Independent queries, so they run together. Sequential they cost up
+        // to four timeouts; together they cost one.
+        let virtualization = std::thread::spawn(|| {
+            let (program, args) = hidden_powershell(
                 "$c = Get-CimInstance Win32_ComputerSystem; \
                  $p = Get-CimInstance Win32_Processor | Select-Object -First 1; \
                  \"$($p.VirtualizationFirmwareEnabled),$($c.HypervisorPresent)\"",
-            ],
-        ) {
+            );
+            output_of_args(program, &args)
+        });
+        let caption = std::thread::spawn(|| {
+            let (program, args) =
+                hidden_powershell("(Get-CimInstance Win32_OperatingSystem).Caption");
+            output_of_args(program, &args)
+        });
+        let gpus = std::thread::spawn(|| {
+            let (program, args) = hidden_powershell(
+                "Get-CimInstance Win32_VideoController | Select-Object -ExpandProperty Name",
+            );
+            output_of_args(program, &args)
+        });
+        let wsl = std::thread::spawn(|| output_of("wsl.exe", &["--status"]));
+
+        if let Ok(Some(stdout)) = virtualization.join() {
             snapshot.virtualization = parse_virtualization_csv(&stdout);
         }
-
-        if let Some(stdout) = output_of(
-            "powershell",
-            &[
-                "-NoProfile",
-                "-NonInteractive",
-                "-Command",
-                "(Get-CimInstance Win32_OperatingSystem).Caption",
-            ],
-        ) {
+        if let Ok(Some(stdout)) = caption.join() {
             let caption = stdout.trim().to_string();
             snapshot.os.edition = (!caption.is_empty()).then_some(caption);
         }
-
-        if let Some(stdout) = output_of(
-            "powershell",
-            &[
-                "-NoProfile",
-                "-NonInteractive",
-                "-Command",
-                "Get-CimInstance Win32_VideoController | Select-Object -ExpandProperty Name",
-            ],
-        ) {
+        if let Ok(Some(stdout)) = gpus.join() {
             snapshot.gpus = parse_gpu_lines(&stdout);
         }
-
         snapshot.windows = Some(
-            output_of("wsl", &["--status"])
+            wsl.join()
+                .ok()
+                .flatten()
                 .map(|stdout| parse_wsl_status(&stdout))
                 .unwrap_or_default(),
         );
@@ -184,14 +292,6 @@ pub(crate) fn enrich(snapshot: &mut SystemSnapshot) {
 
     #[cfg(unix)]
     {
-        if let Ok(contents) = std::fs::read_to_string("/proc/cpuinfo") {
-            snapshot.virtualization = super::platform_specific::parse_cpuinfo_flags(&contents);
-        }
-        snapshot.linux = Some(
-            std::fs::read_to_string("/etc/os-release")
-                .map(|contents| super::os::parse_os_release(&contents))
-                .unwrap_or_default(),
-        );
         if let Some(stdout) = output_of("sh", &["-c", "lspci | grep -i vga"]) {
             snapshot.gpus = parse_gpu_lines(&stdout);
         }
@@ -271,5 +371,70 @@ mod tests {
         assert_eq!(gpus[0].model.as_deref(), Some("NVIDIA GeForce RTX 4070"));
         assert_eq!(gpus[1].vendor.as_deref(), Some("Intel"));
         assert!(parse_gpu_lines("").is_empty());
+    }
+
+    #[test]
+    fn a_windows_probe_asks_powershell_to_stay_hidden() {
+        let (program, args) = hidden_powershell("Get-Date");
+        assert_eq!(
+            program, "powershell.exe",
+            "the `powershell` alias can open a visible console"
+        );
+        assert!(
+            args.windows(2).any(
+                |pair| pair.first().map(String::as_str) == Some("-WindowStyle")
+                    && pair.get(1).map(String::as_str) == Some("Hidden")
+            ),
+            "PowerShell was started without -WindowStyle Hidden: {args:?}"
+        );
+    }
+
+    #[test]
+    fn a_command_that_finishes_in_time_still_returns_its_output() {
+        let result = if cfg!(windows) {
+            output_of_timed(
+                "cmd",
+                &["/C", "echo hello"],
+                std::time::Duration::from_secs(2),
+            )
+        } else {
+            output_of_timed("echo", &["hello"], std::time::Duration::from_secs(2))
+        };
+        let stdout = result.expect("a command that finished should return its output");
+        assert!(
+            stdout.to_ascii_lowercase().contains("hello"),
+            "got {stdout:?}"
+        );
+    }
+
+    #[test]
+    fn a_hung_command_is_abandoned_instead_of_stalling_the_caller() {
+        // The launch hang: `wsl --status` and a CIM query that never returns
+        // used to block `Runtime::start` until the process was killed. A probe
+        // that cannot answer in time must come back empty, not wait it out.
+        let started = std::time::Instant::now();
+        let result = if cfg!(windows) {
+            output_of_timed(
+                "powershell",
+                &[
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-Command",
+                    "Start-Sleep -Seconds 8",
+                ],
+                std::time::Duration::from_millis(400),
+            )
+        } else {
+            output_of_timed("sleep", &["8"], std::time::Duration::from_millis(400))
+        };
+        let elapsed = started.elapsed();
+        assert!(
+            result.is_none(),
+            "a command that outlived its budget still returned output"
+        );
+        assert!(
+            elapsed < std::time::Duration::from_secs(2),
+            "waited {elapsed:?} for a command that should have been killed at 400ms"
+        );
     }
 }

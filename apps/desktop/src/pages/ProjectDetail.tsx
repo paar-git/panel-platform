@@ -17,10 +17,7 @@ import {
   errorMessage,
   setProjectPower,
   type ProjectPriority,
-  HOST_MODE_TRADE,
-  isHostMode,
   killProject,
-  setProjectRunMode,
   projectDeployments,
   projectDetails,
   projectEvents,
@@ -30,10 +27,13 @@ import {
   startProject,
   stopProject,
   type ActivityEntry,
-  type ContainerEvent,
+  type ProjectEvent,
   type DeploymentSummary,
   type ProjectDetail as Detail,
   type ProjectSummary,
+  type ProcessSummary,
+  listProjectProcesses,
+  restartProjectProcess,
 } from '../api';
 import {
   baseName,
@@ -47,6 +47,7 @@ import {
 import { runtimeLabel } from '../lib/projectList';
 import { describeAction, healthLook, isRunning, runControls, statusLook } from '../lib/projects';
 import { isDeclined, useToolchainGate } from '../components/useToolchainGate';
+import { ProcessList } from '../components/ProcessList';
 import ProjectMark from '../ui/ProjectMark';
 import Icon from '../ui/Icon';
 import { ConfirmDialog } from '../ui/overlays';
@@ -78,14 +79,12 @@ type TabId =
 
 export default function ProjectDetail({
   project,
-  dockerAvailable,
   developerMode = false,
   onRefreshProjects,
   onBack,
   onOpenFiles,
 }: {
   project: ProjectSummary;
-  dockerAvailable: boolean;
   /** Shows the internal identifiers a bug report needs. */
   developerMode?: boolean;
   onRefreshProjects: () => Promise<void>;
@@ -96,7 +95,7 @@ export default function ProjectDetail({
   const [detail, setDetail] = useState<Detail | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
   const [deployments, setDeployments] = useState<DeploymentSummary[] | null>(null);
-  const [events, setEvents] = useState<ContainerEvent[] | null>(null);
+  const [events, setEvents] = useState<ProjectEvent[] | null>(null);
   const [activity, setActivity] = useState<ActivityEntry[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [confirmKill, setConfirmKill] = useState(false);
@@ -131,7 +130,7 @@ export default function ProjectDetail({
 
   const look = statusLook(project.status);
   const running = isRunning(project.status);
-  const { blocked, reason: blockedReason } = runControls(project, { busy, dockerAvailable });
+  const { blocked, reason: blockedReason } = runControls(project, { busy });
 
   async function act(verb: string, action: (id: string) => Promise<unknown>) {
     setBusy(true);
@@ -153,44 +152,37 @@ export default function ProjectDetail({
   const uptime = uptimeSeconds(detail?.startedAt ?? null);
 
   return (
-    <div className="mx-auto w-full max-w-[1200px] px-8 py-6">
+    <div className="w-full max-w-[940px]">
       <button
         type="button"
         onClick={onBack}
-        className="mb-4 inline-flex items-center gap-1.5 text-[13px] text-muted hover:text-ink"
+        className="mb-4 inline-flex items-center gap-1 text-[12.5px] text-faint hover:text-ink"
       >
-        <Icon name="chevron-left" size={14} />
+        <Icon name="chevron-left" size={13} />
         Projects
       </button>
 
-      <header className="mb-5 flex flex-wrap items-start justify-between gap-4">
-        <div className="flex min-w-0 items-start gap-3">
-          <ProjectMark projectId={project.id} runtime={project.projectType} size={40} />
+      <header className="mb-[18px] flex flex-wrap items-center justify-between gap-4">
+        <div className="flex min-w-0 items-center gap-3.5">
+          <ProjectMark projectId={project.id} runtime={project.projectType} size={44} />
           <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <h1 className="truncate text-[20px] leading-tight font-semibold tracking-tight">
+            <div className="flex flex-wrap items-center gap-2.5">
+              <h1 className="truncate text-[26px] leading-tight font-semibold tracking-[-0.025em]">
                 {project.displayName}
               </h1>
               <Badge tone={look.tone} dot>
                 {look.label}
               </Badge>
-              {isHostMode(project) && (
-                <Badge
-                  tone="warn"
-                  title="Runs as a process on this machine, without a container's isolation"
-                >
-                  host
-                </Badge>
-              )}
               {detail && detail.health.toUpperCase() !== 'NONE' && (
                 <Badge tone={healthLook(detail.health).tone}>
                   {healthLook(detail.health).label}
                 </Badge>
               )}
             </div>
-            <p className="mt-1 truncate text-[13px] text-muted">
-              {project.description || project.slug}
-            </p>
+            <p className="mt-0.5 truncate font-mono text-[12px] text-faint">{project.slug}</p>
+            {project.description && (
+              <p className="mt-0.5 truncate text-[12.5px] text-muted">{project.description}</p>
+            )}
             {developerMode && (
               <p className="mt-1 font-mono text-[11px] text-faint select-text">
                 {project.id} · {project.projectType}
@@ -332,11 +324,43 @@ function Overview({
   onOpenFiles: () => void;
   onReveal: () => void;
 }) {
+  const [processes, setProcesses] = useState<ProcessSummary[]>([]);
+
+  const loadProcesses = useCallback(() => {
+    void listProjectProcesses(detail.id)
+      .then(setProcesses)
+      // A project that cannot list its processes still has a page worth
+      // showing; the list renders its own empty state.
+      .catch(() => setProcesses([]));
+  }, [detail.id]);
+
+  // Re-read on every status change, which is when a process status can have
+  // moved. The page already polls status; this rides on it rather than adding
+  // a second timer.
+  useEffect(loadProcesses, [loadProcesses, detail.status]);
+
   return (
     <div className="grid gap-4 lg:grid-cols-2">
       <Card>
+        <CardHeader title="Processes" />
+        <ProcessList
+          projectId={detail.id}
+          processes={processes}
+          onRestart={async (name) => {
+            try {
+              await restartProjectProcess(detail.id, name);
+              toast.success(`Restarted ${name}`);
+            } catch (error) {
+              toast.error(`Could not restart ${name}`, errorMessage(error));
+            }
+            loadProcesses();
+          }}
+        />
+      </Card>
+
+      <Card>
         <CardHeader title="State" />
-        <div className="px-4 py-1">
+        <div className="py-1">
           <DataRow label="Uptime" value={uptime === null ? '—' : formatDuration(uptime)} />
           <DataRow label="Started" value={formatRelative(detail.startedAt)} />
           <DataRow label="Last stopped" value={formatRelative(detail.stoppedAt)} />
@@ -359,22 +383,18 @@ function Overview({
 
       <Card>
         <CardHeader title="Runtime" />
-        <div className="px-4 py-1">
+        <div className="py-1">
           <DataRow label="Type" value={runtimeLabel(detail.projectType)} />
           {detail.runtime ? (
             <>
               <DataRow label="Runtime" value={runtimeLabel(detail.runtime.runtime)} />
               <DataRow label="Version" value={detail.runtime.runtimeVersion || '—'} />
               <DataRow label="Package manager" value={detail.runtime.packageManager || '—'} />
-              <DataRow label="Install" value={detail.runtime.installCommand ?? '—'} mono />
-              <DataRow label="Build" value={detail.runtime.buildCommand ?? '—'} mono />
-              <DataRow label="Start" value={detail.runtime.startCommand || '—'} mono />
-              <DataRow label="Working directory" value={detail.runtime.workingDir || '—'} mono />
+              <DataRow label="Entry file" value={detail.runtime.entryFile ?? '—'} mono />
             </>
           ) : (
             <DataRow label="Runtime" value="not recorded" />
           )}
-          <DataRow label="Run mode" value={detail.runMode.toLowerCase()} />
         </div>
       </Card>
 
@@ -395,7 +415,7 @@ function Overview({
             </>
           }
         />
-        <div className="px-4 py-1">
+        <div className="py-1">
           <DataRow label="Source" value={detail.sourceType.toLowerCase()} />
           {detail.sourceUrl && <DataRow label="Remote" value={detail.sourceUrl} mono />}
           {detail.sourceRef && <DataRow label="Reference" value={detail.sourceRef} mono />}
@@ -417,7 +437,7 @@ function Overview({
         ) : activity.length === 0 ? (
           <p className="px-4 py-5 text-[13px] text-muted">Nothing recorded for this project yet.</p>
         ) : (
-          <ul className="px-4 py-1">
+          <ul className="py-1">
             {activity.slice(0, 8).map((entry) => (
               <li
                 key={entry.id}
@@ -511,7 +531,7 @@ function Deployments({ deployments }: { deployments: DeploymentSummary[] | null 
 
 // ------------------------------------------------------------------- history
 
-function History({ events, detail }: { events: ContainerEvent[] | null; detail: Detail }) {
+function History({ events, detail }: { events: ProjectEvent[] | null; detail: Detail }) {
   return (
     <div className="grid gap-4 lg:grid-cols-[1fr_280px]">
       <Card className="overflow-hidden">
@@ -555,7 +575,7 @@ function History({ events, detail }: { events: ContainerEvent[] | null; detail: 
 
       <Card>
         <CardHeader title="Summary" />
-        <div className="px-4 py-1">
+        <div className="py-1">
           <DataRow label="Restarts" value={detail.restartCount} />
           <DataRow
             label="Last exit code"
@@ -584,14 +604,14 @@ function Networking({ detail }: { detail: Detail }) {
           <ul>
             {detail.ports.map((port) => (
               <li
-                key={`${port.containerPort}-${port.protocol}`}
+                key={`${port.port}-${port.protocol}`}
                 className="flex items-center gap-3 border-b border-edge/60 px-4 py-2.5 last:border-b-0"
               >
                 <span className="tabular font-mono text-[13px] text-ink">
                   {port.hostPort ?? '—'}
                 </span>
                 <Icon name="arrow-right" size={14} className="text-faint" />
-                <span className="tabular font-mono text-[13px] text-ink">{port.containerPort}</span>
+                <span className="tabular font-mono text-[13px] text-ink">{port.port}</span>
                 <span className="flex-1 text-[12px] text-muted uppercase">{port.protocol}</span>
                 {port.hostPort !== null && (
                   <span className="font-mono text-[12px] text-accent select-text">
@@ -605,18 +625,13 @@ function Networking({ detail }: { detail: Detail }) {
       </Card>
 
       <Card>
-        <CardHeader title="Network" />
-        <div className="px-4 py-1">
+        <CardHeader
+          title="Network"
+          subtitle="A project is given a port from the host pool the first time it starts."
+        />
+        <div className="py-1">
           <DataRow label="Mode" value={detail.networkMode.toLowerCase()} />
-          <DataRow label="Container" value={detail.containerName ?? '—'} mono />
-          <DataRow label="Image" value={detail.imageTag ?? '—'} mono />
-          <DataRow
-            label="Health check"
-            value={detail.runtime?.healthCheckType.toLowerCase() ?? '—'}
-          />
-          {detail.runtime?.healthCheckTarget && (
-            <DataRow label="Health target" value={detail.runtime.healthCheckTarget} mono />
-          )}
+          <DataRow label="Health" value={healthLook(detail.health).label} />
         </div>
       </Card>
     </div>
@@ -704,7 +719,7 @@ function Resources({
       <PowerCard detail={detail} project={project} onChanged={onChanged} />
       <Card>
         <CardHeader title="Limits" subtitle="What this project is allowed to use" />
-        <div className="px-4 py-1">
+        <div className="py-1">
           <DataRow
             label="Memory"
             value={
@@ -769,7 +784,8 @@ function PowerCard({
   // carries the summary the list was drawn from, which can be a poll behind.
   const priority = (detail.priority ?? 'NORMAL') as ProjectPriority;
   const keepAwake = detail.keepAwake ?? false;
-  const host = detail.runMode === 'HOST';
+  // Every project runs on this machine now.
+  const host = true;
 
   async function apply(changes: { priority?: ProjectPriority; keepAwake?: boolean }) {
     setBusy(true);
@@ -836,84 +852,12 @@ function PowerCard({
 
 // ------------------------------------------------------------------ settings
 
-/**
- * Choosing between a container and a process, and saying what that costs.
- *
- * Switching *to* host mode is confirmed every time, because it is the direction
- * that gives something up. Nothing extra is stored to remember the
- * confirmation: accepting is what performs the switch, so a project already in
- * host mode is never asked again, and switching back and forth asks each time
- * it is switched to.
- */
-function RunModeCard({ detail, onChanged }: { detail: Detail; onChanged: () => void }) {
-  const [busy, setBusy] = useState(false);
-  const [confirming, setConfirming] = useState(false);
-  const host = detail.runMode === 'HOST';
-  const running = isRunning(detail.status);
-
-  async function apply(mode: string) {
-    setBusy(true);
-    try {
-      await setProjectRunMode(detail.id, mode);
-      setConfirming(false);
-      onChanged();
-      toast.success(mode === 'HOST' ? 'Now runs on this machine' : 'Now runs in a container');
-    } catch (error) {
-      toast.error('Could not change the run mode', errorMessage(error));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <Card>
-      <CardHeader title="Run mode" />
-      <div className="space-y-3 px-4 py-3">
-        <p className="text-[13px] text-muted">
-          {host
-            ? 'This project runs as a process on this machine.'
-            : 'This project runs in a container.'}
-        </p>
-
-        {running ? (
-          <p className="text-[12px] text-muted">Stop the project to change how it runs.</p>
-        ) : host ? (
-          <Button size="sm" disabled={busy} onClick={() => void apply('DOCKER')}>
-            Run in a container instead
-          </Button>
-        ) : confirming ? (
-          <div className="space-y-3 rounded-lg border border-edge p-3">
-            <p className="text-[13px]">{HOST_MODE_TRADE}</p>
-            <div className="flex gap-2">
-              <Button size="sm" disabled={busy} onClick={() => void apply('HOST')}>
-                I understand — run it on this machine
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                disabled={busy}
-                onClick={() => setConfirming(false)}
-              >
-                Cancel
-              </Button>
-            </div>
-          </div>
-        ) : (
-          <Button size="sm" disabled={busy} onClick={() => setConfirming(true)}>
-            Run on this machine instead
-          </Button>
-        )}
-      </div>
-    </Card>
-  );
-}
-
-function Settings({ detail, onChanged }: { detail: Detail; onChanged: () => void }) {
+function Settings({ detail }: { detail: Detail; onChanged: () => void }) {
   return (
     <div className="grid gap-4 lg:grid-cols-2">
       <Card>
         <CardHeader title="Identity" />
-        <div className="px-4 py-1">
+        <div className="py-1">
           <DataRow label="Name" value={detail.displayName} />
           <DataRow label="Slug" value={detail.slug} mono />
           <DataRow label="Description" value={detail.description || '—'} />
@@ -921,11 +865,9 @@ function Settings({ detail, onChanged }: { detail: Detail; onChanged: () => void
         </div>
       </Card>
 
-      <RunModeCard detail={detail} onChanged={onChanged} />
-
       <Card>
         <CardHeader title="Behaviour" />
-        <div className="px-4 py-1">
+        <div className="py-1">
           <DataRow label="Autostart" value={detail.autostart ? 'on' : 'off'} />
           <DataRow label="Restart policy" value={detail.restartPolicy.toLowerCase()} />
           <DataRow label="Updated" value={formatRelative(detail.updatedAt)} />

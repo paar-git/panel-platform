@@ -1,7 +1,7 @@
 //! The real startup and shutdown path, against a real database on disk.
 //!
 //! Not mocked and not in memory: this creates the directory layout, runs the
-//! migrations, performs crash recovery, probes Docker and closes the pool, in
+//! migrations, performs crash recovery and closes the pool, in
 //! the same order and by the same code the application will use. It is the
 //! closest thing to "does it work" that exists while there is no window to
 //! open, and it covers the paths that are hardest to exercise by hand — an
@@ -50,33 +50,6 @@ async fn a_cold_start_creates_everything_it_needs() {
         !runtime.state().inner().instance_id.is_empty(),
         "the run should be identifiable in the logs"
     );
-
-    runtime.shutdown().await;
-}
-
-#[tokio::test]
-async fn docker_is_probed_at_startup_and_its_absence_is_not_fatal() {
-    // The rule from the design: an application that refuses to start without
-    // Docker cannot tell the user why Docker is missing. This asserts the probe
-    // happened and produced a description, not that Docker is present — the
-    // test must pass on a machine either way.
-    let directory = tempfile::tempdir().expect("temp dir");
-    let config = config_rooted_at(directory.path());
-    let paths = resolve_paths(&config).expect("paths");
-
-    let runtime = Runtime::start(config, paths).await.expect("start");
-    let status = runtime.state().docker_status().await;
-
-    assert!(
-        !status.summary().is_empty(),
-        "the probe should describe what it found either way"
-    );
-    if !status.available {
-        assert!(
-            status.install_hint.is_some() || status.error.is_some(),
-            "an absent daemon must come with a reason or a hint, not silence"
-        );
-    }
 
     runtime.shutdown().await;
 }
@@ -182,4 +155,75 @@ async fn a_refused_configuration_never_reaches_startup() {
         ..AppConfig::default()
     };
     assert!(config.validate().is_err(), "an empty port pool is unusable");
+}
+
+#[tokio::test]
+async fn startup_records_which_stages_ran_and_how_long_they_took() {
+    let directory = tempfile::tempdir().expect("temp dir");
+    let config = config_rooted_at(directory.path());
+    let paths = resolve_paths(&config).expect("paths");
+
+    let runtime = Runtime::start(config, paths).await.expect("start");
+    let diagnostics = runtime.startup_diagnostics();
+
+    let names: Vec<&str> = diagnostics
+        .stages
+        .iter()
+        .map(|stage| stage.name.as_str())
+        .collect();
+    assert!(
+        names.contains(&"directories"),
+        "missing directories stage, got {names:?}"
+    );
+    assert!(
+        names.contains(&"database"),
+        "missing database stage, got {names:?}"
+    );
+    assert!(
+        names.contains(&"recovery"),
+        "missing recovery stage, got {names:?}"
+    );
+    assert!(
+        !names.contains(&"docker"),
+        "docker was on the critical path, got {names:?}"
+    );
+    assert!(
+        diagnostics.total_ms < 5_000,
+        "critical startup took {}ms",
+        diagnostics.total_ms
+    );
+    for stage in &diagnostics.stages {
+        assert!(
+            !stage.outcome.is_empty(),
+            "stage {} has no outcome",
+            stage.name
+        );
+    }
+
+    runtime.shutdown().await;
+}
+
+#[tokio::test]
+async fn optional_startup_does_not_run_a_machine_scan() {
+    // A machine scan spawns PowerShell and `wsl`. Those open a visible console
+    // on Windows, which is what "a PowerShell window appears when I click the
+    // app" was. Docker is probed; the scan is not.
+    let directory = tempfile::tempdir().expect("temp dir");
+    let config = config_rooted_at(directory.path());
+    let paths = resolve_paths(&config).expect("paths");
+    let runtime = Runtime::start(config, paths).await.expect("start");
+    runtime.complete_optional_startup().await;
+
+    let diagnostics = runtime.startup_diagnostics();
+    let names: Vec<&str> = diagnostics
+        .stages
+        .iter()
+        .map(|stage| stage.name.as_str())
+        .collect();
+    assert!(
+        !names.contains(&"machine_scan"),
+        "the launch path still ran a PowerShell machine scan: {names:?}"
+    );
+
+    runtime.shutdown().await;
 }

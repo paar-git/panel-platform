@@ -29,7 +29,7 @@
 use project_host_api_types::{DesiredState, ProjectStatus};
 use project_host_database::projects;
 
-use crate::runner::host::HostRegistry;
+use crate::orchestrator::ProcessRegistry;
 use crate::state::AppState;
 
 /// What one startup reconciliation found.
@@ -116,7 +116,7 @@ pub async fn sweep(app: &AppState) -> usize {
 
     let mut changed = 0;
     for record in records {
-        let Some(handle) = handles.get(&record.id) else {
+        let Some(processes) = handles.get(&record.id).filter(|set| !set.is_empty()) else {
             // No supervisor. Either the project is stopped, which is what the
             // row already says, or the row is stale — and a row that went stale
             // *while this process was running* means the supervisor was
@@ -125,7 +125,20 @@ pub async fn sweep(app: &AppState) -> usize {
             continue;
         };
 
-        let observed = crate::runner::host::observed_from(handle);
+        // The first process that is not running decides, because that is the
+        // one with something to report. All running means the project is.
+        let observed = processes
+            .iter()
+            .map(|process| crate::orchestrator::observed_from(&process.handle))
+            .find(|observed| observed.status != project_host_api_types::ProjectStatus::Running)
+            .or_else(|| {
+                processes
+                    .first()
+                    .map(|process| crate::orchestrator::observed_from(&process.handle))
+            });
+        let Some(observed) = observed else {
+            continue;
+        };
         if apply(app, &record, &observed).await {
             changed += 1;
         }
@@ -142,7 +155,7 @@ pub async fn sweep(app: &AppState) -> usize {
 async fn apply(
     app: &AppState,
     record: &projects::ProjectRecord,
-    observed: &crate::runner::Observed,
+    observed: &crate::orchestrator::Observed,
 ) -> bool {
     let db = app.database();
     let stored_status = record.status.as_str();
@@ -281,7 +294,7 @@ pub async fn start_autostart_projects(app: &AppState) -> Vec<String> {
 ///
 /// Used by the sweep's log line and by tests; a registry with entries and a
 /// database with none is the state that would mean the two had drifted.
-pub async fn supervised(registry: &HostRegistry) -> usize {
+pub async fn supervised(registry: &ProcessRegistry) -> usize {
     registry.all().await.len()
 }
 
@@ -289,7 +302,7 @@ pub async fn supervised(registry: &HostRegistry) -> usize {
 mod tests {
     use super::*;
     use project_host_api_types::{HealthState, ProjectType};
-    use project_host_database::projects::{NewProject, RuntimeSpec};
+    use project_host_database::projects::{NewProcess, NewProject, RuntimeSpec};
 
     async fn app() -> AppState {
         let database = project_host_database::Database::open_in_memory()
@@ -299,14 +312,6 @@ mod tests {
         AppState::new(
             crate::config::AppConfig::default(),
             database,
-            std::sync::Arc::new(crate::runner::tests::AbsentDocker),
-            project_host_docker_manager::DockerStatus::unavailable(
-                project_host_platform::DockerInstallHint {
-                    summary: "Docker is not installed.".to_string(),
-                    detail: String::new(),
-                    url: String::new(),
-                },
-            ),
             project_host_compatibility::Assessment {
                 tier: project_host_compatibility::PerformanceTier::Standard,
                 defaults: project_host_compatibility::ResourceDefaults {
@@ -340,9 +345,6 @@ mod tests {
                 source_url: None,
                 source_ref: None,
                 source_commit: None,
-                container_name: format!("ph-{slug}"),
-                network_name: format!("ph-net-{slug}"),
-                volume_name: format!("ph-data-{slug}"),
                 autostart: false,
                 restart_policy: "NO".to_string(),
                 network_mode: "INTERNET".to_string(),
@@ -354,20 +356,11 @@ mod tests {
                     runtime: "NODEJS".to_string(),
                     runtime_version: "latest".to_string(),
                     package_manager: "NPM".to_string(),
-                    install_command: None,
-                    build_command: None,
-                    start_command: "node index.js".to_string(),
-                    working_dir: "/app".to_string(),
                     entry_file: None,
                     publish_dir: None,
                     template_id: "node".to_string(),
-                    health_check_type: "NONE".to_string(),
-                    health_check_target: None,
-                    health_interval_s: 30,
-                    health_timeout_s: 5,
-                    health_retries: 3,
-                    health_start_period_s: 10,
                 },
+                processes: vec![NewProcess::simple("main", 0, "node index.js")],
                 ports: Vec::new(),
             },
         )

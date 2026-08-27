@@ -12,7 +12,6 @@
 import { useEffect, useMemo, useState } from 'react';
 
 import {
-  isHostMode,
   killProject,
   restartProject,
   startProject,
@@ -44,13 +43,11 @@ const VIEW_KEY = 'panel.projectsView.v1';
 
 export default function Projects({
   projects,
-  dockerAvailable,
   onRefresh,
   onOpen,
   onNewProject,
 }: {
   projects: ProjectSummary[] | null;
-  dockerAvailable: boolean;
   onRefresh: () => Promise<void>;
   onOpen: (id: string) => void;
   onNewProject: () => void;
@@ -263,7 +260,6 @@ export default function Projects({
                   key={project.id}
                   project={project}
                   busy={busy === project.id}
-                  dockerAvailable={dockerAvailable}
                   onOpen={() => onOpen(project.id)}
                   onAct={act}
                 />
@@ -277,7 +273,6 @@ export default function Projects({
                     key={project.id}
                     project={project}
                     busy={busy === project.id}
-                    dockerAvailable={dockerAvailable}
                     onOpen={() => onOpen(project.id)}
                     onAct={act}
                   />
@@ -299,36 +294,32 @@ type ActFn = (
 ) => Promise<void>;
 
 /**
- * The controls a project offers, and why each is unavailable when it is.
+ * Whether a project's controls should be usable.
  *
- * A missing Docker daemon blocks only the projects that need one. This used to
- * block every project, which meant a machine without Docker could create
- * projects and edit their files but never run any of them — including the host
- * projects that exist precisely so it can.
+ * A thin wrapper over `runControls` so the list and the detail page cannot
+ * disagree about when a button is live.
  */
-function useControls(project: ProjectSummary, busy: boolean, dockerAvailable: boolean) {
-  const { blocked, reason } = runControls(project, { busy, dockerAvailable });
+function useControls(project: ProjectSummary, busy: boolean) {
+  const { blocked, reason } = runControls(project, { busy });
   return { look: statusLook(project.status), running: isRunning(project.status), blocked, reason };
 }
 
 function ProjectCard({
   project,
   busy,
-  dockerAvailable,
   onOpen,
   onAct,
 }: {
   project: ProjectSummary;
   busy: boolean;
-  dockerAvailable: boolean;
   onOpen: () => void;
   onAct: ActFn;
 }) {
-  const { look, running, blocked, reason } = useControls(project, busy, dockerAvailable);
+  const { look, running, blocked, reason } = useControls(project, busy);
   const menu = useMenu();
 
   return (
-    <div className="flex h-[150px] flex-col rounded-[7px] border border-edge bg-surface transition-colors duration-100 hover:border-edge-strong">
+    <div className="flex h-[150px] flex-col rounded-[12px] border border-edge bg-surface transition-colors duration-100 hover:border-edge-strong">
       {/* Identity. The mark and the name are the row a person scans; the
           runtime and the state are the line underneath it. */}
       <div className="flex items-start gap-2.5 p-3">
@@ -340,7 +331,6 @@ function ProjectCard({
           </span>
           <span className="mt-0.5 block truncate text-[11.5px] text-faint">
             {runtimeLabel(project.projectType)}
-            {isHostMode(project) ? ' · on this machine' : ' · container'}
           </span>
         </button>
 
@@ -413,17 +403,15 @@ function ProjectCard({
 function ProjectRow({
   project,
   busy,
-  dockerAvailable,
   onOpen,
   onAct,
 }: {
   project: ProjectSummary;
   busy: boolean;
-  dockerAvailable: boolean;
   onOpen: () => void;
   onAct: ActFn;
 }) {
-  const { look, running, blocked, reason } = useControls(project, busy, dockerAvailable);
+  const { look, running, blocked, reason } = useControls(project, busy);
   const menu = useMenu();
 
   return (
@@ -443,14 +431,6 @@ function ProjectRow({
         {runtimeLabel(project.projectType)}
       </span>
 
-      {isHostMode(project) && (
-        <Badge
-          tone="warn"
-          title="Runs as a process on this machine, without a container's isolation"
-        >
-          host
-        </Badge>
-      )}
       <Badge tone={look.tone} dot>
         {look.label}
       </Badge>

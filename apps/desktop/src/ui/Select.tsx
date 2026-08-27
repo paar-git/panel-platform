@@ -226,7 +226,7 @@ export default function Select<T extends string>({
             maxHeight: placement?.maxHeight,
             visibility: placement ? 'visible' : 'hidden',
           }}
-          className="fixed z-[70] flex flex-col overflow-hidden rounded-[7px] border border-edge bg-overlay shadow-[0_12px_36px_rgba(0,0,0,0.5)]"
+          className="fixed z-[70] flex flex-col overflow-hidden rounded-[10px] border border-edge bg-overlay shadow-[0_12px_36px_rgba(0,0,0,0.5)]"
         >
           {searchable && (
             <div className="shrink-0 border-b border-edge p-2">

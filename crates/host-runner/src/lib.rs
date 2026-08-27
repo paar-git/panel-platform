@@ -33,12 +33,14 @@
 
 pub mod command;
 pub mod health;
+pub mod orchestration;
 pub mod output;
 pub mod probe;
 pub mod supervisor;
 
 pub use command::{split_command, start_command, CommandError, CommandInputs, ProcessCommand};
 pub use health::{check, Check, Health};
+pub use orchestration::{Action, Event, Machine, Process, ProcessState, ProjectStatus};
 pub use output::{log_path, LogLine, Stream, Tail};
 pub use probe::{candidates_for, probe, ExecutableResolver, Toolchain};
 pub use supervisor::{

@@ -26,7 +26,6 @@ pub struct ApiContract {
     server_info: ServerInfo,
     platform_capabilities: PlatformCapabilities,
     connectivity: Connectivity,
-    docker_status: DockerStatus,
 
     // metrics
     host_metrics: HostMetrics,

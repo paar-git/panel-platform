@@ -186,13 +186,11 @@ function TypedLine({ line }: { line: OutputLine }) {
 
 export function TerminalPanel({
   project,
-  dockerAvailable,
   busy,
   onAction,
   lines,
 }: {
   project: ProjectSummary;
-  dockerAvailable: boolean;
   busy: RunAction | null;
   onAction: (action: RunAction) => void;
   /** The Project channel of the transcript: what these buttons actually did. */
@@ -200,14 +198,9 @@ export function TerminalPanel({
 }) {
   const running = project.status === 'RUNNING';
   const transitioning = ['STARTING', 'STOPPING', 'RESTARTING'].includes(project.status);
-  // Only a container project cares whether the daemon answered. A host project
-  // is a process on this machine, and gating it on Docker disabled every run
-  // control on a machine without one.
-  const blockedByDocker = project.runMode !== 'HOST' && !dockerAvailable;
-  const disabled = busy !== null || transitioning || blockedByDocker;
+  const disabled = busy !== null || transitioning;
 
   function reason(action: string): string {
-    if (blockedByDocker) return 'Docker is not available on this machine';
     if (transitioning) return 'The project is already changing state';
     return action;
   }

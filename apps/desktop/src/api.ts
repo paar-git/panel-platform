@@ -15,10 +15,6 @@ export interface SystemStatus {
   schemaVersion: number;
   uptimeSeconds: number;
   startedAt: string;
-  dockerAvailable: boolean;
-  dockerSummary: string;
-  dockerVersion: string | null;
-  dockerHint: string | null;
 }
 
 export interface ProjectSummary {
@@ -30,8 +26,6 @@ export interface ProjectSummary {
   status: string;
   desiredState: string;
   color: string | null;
-  /** `DOCKER` or `HOST`. A host project runs as a process on this machine. */
-  runMode: string;
 }
 
 export interface AvailableUpdate {
@@ -51,7 +45,7 @@ export type UpdateCheck =
 
 /**
  * Rust serialises with snake_case field names; the window reads camelCase.
- * Converting once, here, beats spelling `docker_available` throughout the
+ * Converting once, here, beats spelling `desired_state` throughout the
  * components — and beats configuring serde to rename, which would change the
  * shape of every stored document too.
  */
@@ -85,6 +79,28 @@ export async function systemStatus(): Promise<SystemStatus> {
   return toCamel<SystemStatus>(await invoke('system_status'));
 }
 
+/** Whether the core has finished starting. Safe to call before any other command. */
+export type LaunchStatus =
+  { state: 'starting' } | { state: 'ready' } | { state: 'failed'; message: string };
+
+export async function launchStatus(): Promise<LaunchStatus> {
+  return toCamel<LaunchStatus>(await invoke('launch_status'));
+}
+
+export function onCoreReady(handler: () => void): Promise<() => void> {
+  return listen('core://ready', () => handler()).then((unlisten) => () => {
+    unlisten();
+  });
+}
+
+export function onCoreFailed(handler: (message: string) => void): Promise<() => void> {
+  return listen<string>('core://failed', (event) => handler(event.payload)).then(
+    (unlisten) => () => {
+      unlisten();
+    },
+  );
+}
+
 /** What the machine is carrying right now. */
 export interface MachineLoad {
   totalMemoryBytes: number;
@@ -101,10 +117,12 @@ export interface MachineLoad {
 export interface RunningProject {
   projectId: string;
   displayName: string;
-  runMode: string;
   memoryBytes: number;
   cpuPercent: number | null;
-  /** False for a Docker project, whose figure is its limit, not a reading. */
+  /**
+   * Whether the figure is a reading rather than the project's declared limit.
+   * True whenever the project is running here, which is whenever it runs.
+   */
   measured: boolean;
   /** RFC 3339. The window derives uptime, so it never shows a stale number. */
   startedAt: string | null;
@@ -219,29 +237,20 @@ export async function setProjectPower(
 }
 
 /**
- * Change how a project runs.
+ * What running a project on this machine means, said once.
  *
- * Refused while the project is up: switching substrate under a running project
- * would leave the old one running with nothing tracking it.
+ * Not a choice any more — it is how every project runs — but still worth
+ * stating, because it is what the user is agreeing to by pressing Run.
  */
-export async function setProjectRunMode(projectId: string, runMode: string): Promise<string> {
-  return invoke<string>('set_project_run_mode', { projectId, runMode });
-}
-
-/** What a project gives up by running outside a container. */
 export const HOST_MODE_TRADE =
-  'A host project runs as a process on this machine, with your files and your ' +
+  'A project runs as a process on this machine, with your files and your ' +
   'network and no resource limits, and it stops when Panel Platform quits.';
 
-/** Whether a project runs as a process on this machine rather than a container. */
-export function isHostMode(project: { runMode?: string }): boolean {
-  return project.runMode === 'HOST';
-}
-
 /**
- * How many host projects would stop if the window were closed now.
+ * How many projects would stop if the window were closed now.
  *
- * Docker projects are not counted: they outlive the application.
+ * Every one of them: a project is a set of children of this process, so
+ * nothing outlives the application.
  */
 export async function hostProjectsRunning(): Promise<number> {
   return invoke<number>('host_projects_running');
@@ -335,6 +344,23 @@ export interface GitHubCliStatus {
 /** Asked before the GitHub CLI option is offered. */
 export async function githubCliStatus(): Promise<GitHubCliStatus> {
   return toCamel<GitHubCliStatus>(await invoke('github_cli_status'));
+}
+
+/** One named step of application launch, with how long it took. */
+export interface StartupStage {
+  name: string;
+  durationMs: number;
+  outcome: string;
+}
+
+/** What each launch stage cost, so a slow start names the stage that caused it. */
+export interface StartupDiagnostics {
+  stages: StartupStage[];
+  totalMs: number;
+}
+
+export async function startupDiagnostics(): Promise<StartupDiagnostics> {
+  return toCamel<StartupDiagnostics>(await invoke('startup_diagnostics'));
 }
 
 export interface RuntimeOption {
@@ -452,6 +478,35 @@ export async function restartProject(projectId: string): Promise<string> {
 
 export async function killProject(projectId: string): Promise<void> {
   return invoke('kill_project', { projectId });
+}
+
+// ---------------------------------------------------------- project processes
+
+/** One process of a project, as the window shows it. */
+export interface ProcessSummary {
+  id: string;
+  name: string;
+  startOrder: number;
+  command: string;
+  workingDir: string;
+  installCommand: string | null;
+  buildCommand: string | null;
+  status: string;
+  /** The port this process listens on, when it has one. */
+  port: number | null;
+  exitCode: number | null;
+  /** Why it stopped, when it did not stop cleanly. */
+  failureReason: string | null;
+  restartCount: number;
+}
+
+export async function listProjectProcesses(projectId: string): Promise<ProcessSummary[]> {
+  return invoke('list_project_processes', { projectId });
+}
+
+/** Restart one process. Its siblings keep their pids. */
+export async function restartProjectProcess(projectId: string, processName: string): Promise<void> {
+  return invoke('restart_project_process', { projectId, processName });
 }
 
 // ------------------------------------------------------------- project files
@@ -747,9 +802,9 @@ export async function revealProjectPath(projectId: string, path: string): Promis
 /**
  * What this machine is doing, measured.
  *
- * Host-wide rather than per project: reading a container's own CPU and memory
- * means Docker's stats stream, which the manager does not do yet. These numbers
- * are real, which is why they are worth showing at all.
+ * Host-wide. Per-project figures are reported separately by `machineLoad`,
+ * which reads each project's process tree. These numbers are real, which is
+ * why they are worth showing at all.
  */
 export interface SystemMetrics {
   cpuPercent: number;
@@ -784,21 +839,23 @@ export async function recentActivity(limit: number, projectId?: string): Promise
 
 // ----------------------------------------------------------- project details
 
+/**
+ * The project's toolchain.
+ *
+ * Not how it is started: a project has one toolchain and any number of
+ * processes, so the commands, the working directory and the health check
+ * belong to a `ProcessSummary` rather than here.
+ */
 export interface RuntimeDetail {
   runtime: string;
   runtimeVersion: string;
   packageManager: string;
-  installCommand: string | null;
-  buildCommand: string | null;
-  startCommand: string;
-  workingDir: string;
   entryFile: string | null;
-  healthCheckType: string;
-  healthCheckTarget: string | null;
 }
 
 export interface PortMapping {
-  containerPort: number;
+  /** The port the project's own process binds. */
+  port: number;
   hostPort: number | null;
   protocol: string;
 }
@@ -823,7 +880,6 @@ export interface ProjectDetail {
   status: string;
   desiredState: string;
   health: string;
-  runMode: string;
   /** Scheduling only, never a cap. */
   priority: ProjectPriority;
   /** Whether this project running holds automatic sleep off. */
@@ -836,8 +892,6 @@ export interface ProjectDetail {
   sourceUrl: string | null;
   sourceRef: string | null;
   sourceCommit: string | null;
-  imageTag: string | null;
-  containerName: string | null;
   memoryLimitMb: number;
   cpuLimitCores: number;
   storageLimitMb: number;
@@ -878,7 +932,7 @@ export async function projectDeployments(
 }
 
 /** Starts, stops and crashes — the restart history. */
-export interface ContainerEvent {
+export interface ProjectEvent {
   id: string;
   eventType: string;
   exitCode: number | null;
@@ -886,8 +940,8 @@ export interface ContainerEvent {
   occurredAt: string;
 }
 
-export async function projectEvents(projectId: string, limit: number): Promise<ContainerEvent[]> {
-  return toCamel<ContainerEvent[]>(await invoke('project_events', { projectId, limit }));
+export async function projectEvents(projectId: string, limit: number): Promise<ProjectEvent[]> {
+  return toCamel<ProjectEvent[]>(await invoke('project_events', { projectId, limit }));
 }
 
 export interface AppSettings {
@@ -900,7 +954,6 @@ export interface AppSettings {
   portPoolStart: number;
   portPoolEnd: number;
   portPoolSize: number;
-  dockerEnabled: boolean;
   dataDir: string;
   projectsDir: string;
   logsDir: string;

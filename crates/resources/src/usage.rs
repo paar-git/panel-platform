@@ -52,8 +52,6 @@ impl MachineUsage {
 pub struct RunningProject {
     pub project_id: String,
     pub display_name: String,
-    /// `DOCKER` or `HOST`.
-    pub run_mode: String,
     pub usage: Usage,
 }
 

@@ -6,27 +6,26 @@
 //! 2. Database and migrations, before anything reads state.
 //! 3. Recovery, before the interface opens — the user must not be shown a
 //!    half-repaired world.
-//! 4. Docker probe, which may fail without stopping anything.
+//! 4. A cheap machine snapshot (sysinfo, no subprocesses) so new projects have
+//!    resource defaults.
 //!
-//! Docker deliberately comes last and cannot abort startup. An application that
-//! refuses to start without Docker cannot tell the user why Docker is missing.
+//! Docker, PowerShell CIM, `wsl --status` and autostart live in
+//! [`Runtime::complete_optional_startup`], which runs after the window exists.
+//! They used to sit in front of the window, and a hung named pipe or WSL
+//! service after a reboot looked like the application never opened.
 
 use std::path::PathBuf;
-use std::sync::Arc;
 
 use project_host_database::{queries, recover, time, Database, RecoveryReport};
-use project_host_docker_manager::{system_probe, DockerProbe};
 use project_host_platform::{PathProvider, StandardPaths};
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
 
 use crate::config::AppConfig;
+use crate::startup::StartupDiagnostics;
 use crate::state::{AppState, Identity};
 
 pub const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
-
-/// How often the Docker daemon is re-probed in the background.
-const DOCKER_REFRESH_INTERVAL: std::time::Duration = std::time::Duration::from_secs(15);
 
 /// How often the machine's memory and CPU are sampled.
 ///
@@ -69,7 +68,6 @@ pub enum RuntimeError {
 pub struct Runtime {
     state: AppState,
     paths: StandardPaths,
-    refresher: Option<JoinHandle<()>>,
     sampler: Option<JoinHandle<()>>,
     reconciler: Option<JoinHandle<()>>,
     power: Option<JoinHandle<()>>,
@@ -82,6 +80,7 @@ pub struct Runtime {
     /// "three projects were running when the application last closed, start
     /// them again?" is a question only this answer can pose.
     pub startup: crate::reconcile::StartupReport,
+    diagnostics: std::sync::Arc<std::sync::Mutex<StartupDiagnostics>>,
 }
 
 impl std::fmt::Debug for Runtime {
@@ -95,11 +94,18 @@ impl std::fmt::Debug for Runtime {
 impl Runtime {
     /// Prepare everything the user interface will need.
     pub async fn start(config: AppConfig, paths: StandardPaths) -> Result<Self, RuntimeError> {
-        paths.ensure_all()?;
+        let diagnostics = std::sync::Arc::new(std::sync::Mutex::new(StartupDiagnostics::default()));
+        let critical_started = std::time::Instant::now();
 
+        let started = std::time::Instant::now();
+        paths.ensure_all()?;
+        record(&diagnostics, "directories", started.elapsed(), "ok");
+
+        let started = std::time::Instant::now();
         let database = Database::open(&paths.database_path()).await?;
         database.assert_schema_supported().await?;
         let schema_version = database.schema_version().await?;
+        record(&diagnostics, "database", started.elapsed(), "ok");
 
         let instance_id = uuid::Uuid::new_v4().simple().to_string();
 
@@ -110,6 +116,7 @@ impl Runtime {
         // runs rather than a socket, because there is no socket. It stays in
         // the session row because a support log that says which machine and
         // which process wrote a row is still worth having.
+        let started = std::time::Instant::now();
         let was_clean = queries::begin_agent_session(
             &database,
             APP_VERSION,
@@ -118,8 +125,20 @@ impl Runtime {
             "in-process",
         )
         .await?;
+        record(&diagnostics, "session", started.elapsed(), "ok");
 
+        let started = std::time::Instant::now();
         let recovery = recover(&database, was_clean).await?;
+        record(
+            &diagnostics,
+            "recovery",
+            started.elapsed(),
+            if recovery.integrity_ok {
+                "ok"
+            } else {
+                "integrity-failed"
+            },
+        );
         if !recovery.integrity_ok {
             tracing::error!("database integrity check failed after an unclean shutdown");
         }
@@ -133,19 +152,15 @@ impl Runtime {
             );
         }
 
-        // Probed once now so the first render has an answer; refreshed on a
-        // timer thereafter. A failure here is a reported state, never fatal.
-        let probe: Arc<dyn DockerProbe> = Arc::new(system_probe());
-        let docker_status = probe.probe().await;
-        tracing::info!(docker = %docker_status.summary(), "docker probe complete");
-        queries::record_heartbeat(&database, docker_status.available).await?;
-
-        // Scanned once, here: the hardware does not change while the process
-        // runs. The scan has no failure case, so this cannot make startup fail.
+        // sysinfo only. GPU, WSL and firmware virtualization need subprocesses
+        // that hang after a reboot; they run in complete_optional_startup.
+        let started = std::time::Instant::now();
         let assessment = {
-            use project_host_platform::SystemProbe;
-            project_host_compatibility::assess(&project_host_platform::SystemScanner.snapshot())
+            project_host_compatibility::assess(
+                &project_host_platform::SystemScanner.snapshot_local(),
+            )
         };
+        record(&diagnostics, "assessment", started.elapsed(), "ok");
         tracing::info!(
             tier = assessment.tier.as_str(),
             memory_limit_mb = assessment.defaults.memory_limit_mb,
@@ -157,6 +172,7 @@ impl Runtime {
         // Opened before the state so a failure is one clear log line rather
         // than a surprise the first time a secret is needed. A machine whose
         // keychain cannot be reached still runs; it just cannot hold tokens.
+        let started = std::time::Instant::now();
         let master_key = match crate::keys::load_or_create_master_key(paths.config_dir()) {
             Ok(loaded) => {
                 tracing::info!(
@@ -164,10 +180,12 @@ impl Runtime {
                     created = loaded.created,
                     "master encryption key ready"
                 );
+                record(&diagnostics, "master_key", started.elapsed(), "ok");
                 Some(loaded)
             }
             Err(error) => {
                 tracing::error!(%error, "no master key; features that store secrets are disabled");
+                record(&diagnostics, "master_key", started.elapsed(), "error");
                 None
             }
         };
@@ -175,8 +193,6 @@ impl Runtime {
         let state = AppState::new(
             config,
             database,
-            probe,
-            docker_status,
             assessment,
             Identity {
                 instance_id,
@@ -192,18 +208,45 @@ impl Runtime {
         // describing a process from a previous run: the supervisor registry is
         // empty at this point by construction, so there is nothing to check
         // against and nothing to adopt.
+        let started = std::time::Instant::now();
         let startup = crate::reconcile::at_startup(&state).await;
+        record(&diagnostics, "reconcile", started.elapsed(), "ok");
+        tracing::info!(
+            duration_ms = u64::try_from(critical_started.elapsed().as_millis()).unwrap_or(u64::MAX),
+            "critical startup finished; window can open"
+        );
 
         Ok(Self {
             state,
             paths,
-            refresher: None,
             sampler: None,
             reconciler: None,
             power: None,
             recovery,
             startup,
+            diagnostics,
         })
+    }
+
+    /// What each startup stage cost.
+    pub fn startup_diagnostics(&self) -> StartupDiagnostics {
+        self.diagnostics
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
+    }
+
+    /// Shared handle so the window can read diagnostics after start.
+    pub fn diagnostics_handle(&self) -> std::sync::Arc<std::sync::Mutex<StartupDiagnostics>> {
+        self.diagnostics.clone()
+    }
+
+    /// Docker, hardware enrichment, anything the window can live without.
+    ///
+    /// Called after the window exists. A failure here is a logged state, never
+    /// a reason to close the window that is already on screen.
+    pub async fn complete_optional_startup(&self) {
+        run_optional_startup(self.state.clone(), self.diagnostics.clone()).await;
     }
 
     /// Start everything that should come up on its own.
@@ -214,14 +257,7 @@ impl Runtime {
     /// one. Nothing here can fail the launch — every failure is logged against
     /// the project or bot it belongs to and the rest carry on.
     pub async fn start_automatic_workloads(&self) {
-        crate::reconcile::start_autostart_projects(&self.state).await;
-
-        crate::bots::start_autostart_bots(
-            self.state.database(),
-            self.state.master_key(),
-            self.state.discord(),
-        )
-        .await;
+        autostart_workloads(self.state.clone()).await;
     }
 
     pub fn state(&self) -> &AppState {
@@ -230,38 +266,6 @@ impl Runtime {
 
     pub fn paths(&self) -> &StandardPaths {
         &self.paths
-    }
-
-    /// Start the background Docker refresher.
-    ///
-    /// Kept separate from [`Runtime::start`] so tests can construct a runtime
-    /// without a timer running underneath them. Calling it twice replaces the
-    /// previous task rather than leaking a second one.
-    pub fn spawn_docker_refresher(&mut self, mut shutdown: watch::Receiver<bool>) {
-        if let Some(previous) = self.refresher.take() {
-            previous.abort();
-        }
-
-        let state = self.state.clone();
-        self.refresher = Some(tokio::spawn(async move {
-            let mut ticker = tokio::time::interval(DOCKER_REFRESH_INTERVAL);
-            // The first tick completes immediately; the status was already
-            // probed during startup, so skip it.
-            ticker.tick().await;
-            loop {
-                tokio::select! {
-                    _ = ticker.tick() => {
-                        let status = state.refresh_docker_status().await;
-                        if let Err(error) =
-                            queries::record_heartbeat(state.database(), status.available).await
-                        {
-                            tracing::warn!(%error, "could not record a heartbeat");
-                        }
-                    }
-                    _ = shutdown.changed() => break,
-                }
-            }
-        }));
     }
 
     /// Sample what the machine is using, on a timer.
@@ -347,19 +351,13 @@ impl Runtime {
     /// Stop cleanly: stop host projects, flag the shutdown, checkpoint the WAL,
     /// close the pool.
     ///
-    /// This does **not** stop project *containers*. Docker keeps them running
-    /// under its own restart policy, which is what lets a bot stay online after
-    /// the window is closed.
-    ///
-    /// Host projects are the opposite case and are stopped here. They are
-    /// children of this process, so they would die with it regardless; stopping
-    /// them deliberately is the difference between a clean stop with `STOPPED`
-    /// recorded and a process that vanishes leaving the database claiming it
-    /// runs. It happens before the pool closes, because it writes.
+    /// Every project stops. Nothing outlives the application any more: a
+    /// project is a set of children of this process, so they would die with it
+    /// regardless. Stopping them deliberately is the difference between a
+    /// clean stop with `STOPPED` recorded and a process that vanishes leaving
+    /// the database claiming it runs. It happens before the pool closes,
+    /// because it writes.
     pub async fn shutdown(mut self) {
-        if let Some(refresher) = self.refresher.take() {
-            refresher.abort();
-        }
         if let Some(sampler) = self.sampler.take() {
             sampler.abort();
         }
@@ -402,6 +400,47 @@ impl Runtime {
         self.state.database().close().await;
 
         tracing::info!("application stopped");
+    }
+}
+
+/// Same work as [`Runtime::complete_optional_startup`], on owned state.
+///
+/// [`Runtime`] is not `Sync` (it holds join handles), so `&self` futures cannot
+/// be spawned on the window's thread pool. `AppState` can.
+pub async fn run_optional_startup(
+    state: AppState,
+    diagnostics: std::sync::Arc<std::sync::Mutex<StartupDiagnostics>>,
+) {
+    let started = std::time::Instant::now();
+    if let Err(error) = queries::record_heartbeat(state.database()).await {
+        tracing::warn!(%error, "could not record a heartbeat");
+        record(&diagnostics, "heartbeat", started.elapsed(), "error");
+    } else {
+        record(&diagnostics, "heartbeat", started.elapsed(), "ok");
+    }
+
+    // PowerShell CIM and `wsl --status` are not run here. They flash a
+    // console on Windows even with CREATE_NO_WINDOW, and nothing on this
+    // path needs GPU or WSL facts. Toolchain install still scans when the
+    // user actually starts a project.
+}
+
+/// Same work as [`Runtime::start_automatic_workloads`], on owned state.
+pub async fn autostart_workloads(state: AppState) {
+    crate::reconcile::start_autostart_projects(&state).await;
+
+    crate::bots::start_autostart_bots(state.database(), state.master_key(), state.discord()).await;
+}
+
+fn record(
+    diagnostics: &std::sync::Arc<std::sync::Mutex<StartupDiagnostics>>,
+    name: &str,
+    duration: std::time::Duration,
+    outcome: &str,
+) {
+    match diagnostics.lock() {
+        Ok(mut diagnostics) => diagnostics.record(name, duration, outcome),
+        Err(poisoned) => poisoned.into_inner().record(name, duration, outcome),
     }
 }
 

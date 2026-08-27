@@ -177,11 +177,9 @@ export function SourceControlPanel({ projectRoot }: { projectRoot: string | null
 
 export function RunPanel({
   project,
-  dockerAvailable,
   onOpenTerminal,
 }: {
   project: ProjectSummary;
-  dockerAvailable: boolean;
   onOpenTerminal: () => void;
 }) {
   return (
@@ -203,7 +201,6 @@ export function RunPanel({
         <Fact label="Status" value={project.status.toLowerCase()} />
         <Fact label="Wanted" value={project.desiredState.toLowerCase()} />
         <Fact label="Type" value={project.projectType.toLowerCase()} />
-        <Fact label="Docker" value={dockerAvailable ? 'available' : 'not available'} />
       </dl>
 
       <SectionNote>
@@ -258,7 +255,6 @@ export function AccountPanel({
         <dl className="px-5 text-[12px]">
           <Fact label="Version" value={status.appVersion} />
           <Fact label="Schema" value={`v${status.schemaVersion}`} />
-          <Fact label="Docker" value={status.dockerSummary} />
         </dl>
       )}
 

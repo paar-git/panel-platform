@@ -671,6 +671,65 @@
   border-width: var(--border-w);
 }
 
+/* Panel Warm — Warm near-black with an ember accent. The redesign palette. */
+:root[data-theme='panel-warm'] {
+  --color-canvas: #0d0c0b;
+  --color-surface: #141211;
+  --color-raised: #171514;
+  --color-overlay: #1d1a18;
+  --color-edge: #221e1c;
+  --color-edge-strong: #2a2523;
+  --color-ink: #f5f0ec;
+  --color-muted: #a29a94;
+  --color-faint: #7d756f;
+  --color-accent: #f2620a;
+  --color-accent-hover: #da5809;
+  --color-accent-soft: #361b0b;
+  --color-ok: #4ec26a;
+  --color-ok-soft: #17291a;
+  --color-warn: #e3a008;
+  --color-warn-soft: #2f240b;
+  --color-danger: #f0577a;
+  --color-danger-soft: #31181d;
+  --color-sidebar-top: #100f0e;
+  --color-sidebar-bottom: #100f0e;
+  --color-sidebar-edge: #221e1c;
+  --color-brand-from: #c65008;
+  --color-brand-to: #9a3e06;
+  --color-brand-to-hover: #b24807;
+  --color-vs-titlebar: #100e0d;
+  --color-vs-activity: #0d0c0b;
+  --color-vs-sidebar: #11100f;
+  --color-vs-editor: #141211;
+  --color-vs-tabbar: #100e0d;
+  --color-vs-panel: #11100f;
+  --color-vs-status: #9a3e06;
+  --color-vs-status-idle: #2a2523;
+  --color-vs-border: #221e1c;
+  --color-vs-selected: #3c2010;
+  --color-vs-active: #52280f;
+  --color-vs-text: #f5f0ec;
+  --color-vs-dim: #a29a94;
+  --color-vs-badge: #f2620a;
+  --font-ui: 'Instrument Sans', 'Inter', 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
+  --font-mono-theme: ui-monospace, 'Cascadia Mono', 'JetBrains Mono', 'SF Mono', Menlo, Consolas, monospace;
+
+  --background: var(--color-canvas);
+  --surface: var(--color-surface);
+  --surface-hover: var(--color-overlay);
+  --primary: var(--color-accent);
+  --secondary: var(--color-edge-strong);
+  --text: var(--color-ink);
+  --text-muted: var(--color-muted);
+  --border: var(--color-edge);
+  --success: var(--color-ok);
+  --warning: var(--color-warn);
+  --danger: var(--color-danger);
+  --border-radius: var(--radius-card);
+  --font-family: var(--font-ui);
+  --shadow: var(--shadow-card);
+}
+
 /* Editor Dark — The familiar blue-grey editor dark. Neutral and unsurprising. */
 :root[data-theme='editor-dark'] {
   --color-canvas: #1e1e1e;
