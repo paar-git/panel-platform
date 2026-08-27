@@ -111,6 +111,42 @@ jobs:
           # otherwise the two most prominent links on the page are the two
           # nobody wanting to *use* the application should click.
           releaseBody: |
+            ## What changed in 0.1.16
+
+            **A project can be more than one process.** An API next to a web server, or
+            anything with a background worker, is now one project rather than three
+            pretending not to know each other. Each process carries its own command, its
+            own install and build steps, its own environment and its own port, and the
+            set is edited in the application — Panel does not write a file into your
+            repository to remember it.
+
+            **They start one at a time, in the order you put them in.** The second
+            process spawns once the first has settled, or once it reports healthy when
+            you have given it a health check. Nothing races for a port or for a database
+            that is not up yet. If one cannot start, the ones already up are stopped in
+            reverse order and the failure names the process that caused it, rather than
+            leaving half a project running.
+
+            **A single process can be restarted on its own.** Restarting the web server
+            while the API keeps its connections is now a button rather than a reason to
+            restart everything.
+
+            **Docker is gone rather than deprecated.** The daemon, the generated
+            Dockerfiles, the container ports and the mode switch are all removed. Your
+            projects already ran as local processes in 0.1.15; what goes now is the
+            vocabulary that outlived the containers — including a `/app` working
+            directory that no computer here has ever had.
+
+            **The application has been redesigned.** It is arranged by place rather than
+            by tool: a project's files, processes, console and settings are somewhere you
+            go, not tabs you hunt for. New palette and card language throughout.
+
+            A correctness review before this release found ten faults that nothing was
+            failing on — among them health checks that could never fail a start, a
+            "restart" that only stopped, and process rows that never returned to stopped.
+            All ten are fixed, with tests that start real processes and check the
+            operating system agrees.
+
             ## What changed in 0.1.15
 
             **Your projects run on your machine, not in a container.** Host mode is now

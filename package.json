@@ -1,6 +1,6 @@
 {
   "name": "project-host",
-  "version": "0.1.15",
+  "version": "0.1.16",
   "private": true,
   "type": "module",
   "description": "Desktop application for hosting and managing projects on a private server",
