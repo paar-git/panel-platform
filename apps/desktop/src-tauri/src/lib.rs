@@ -1689,6 +1689,18 @@ async fn import_project_files(
     .map_err(CommandError::from)
     .and_then(|result| result.map_err(CommandError::from))?;
 
+    // Links in the source are not copied — a copy is not the place they point
+    // at — but they are not nothing either, and an import that dropped them
+    // without a word would be the silent half of the bug that used to refuse
+    // the whole import over them.
+    if report.skipped_symlinks > 0 {
+        tracing::info!(
+            skipped = report.skipped_symlinks,
+            examples = ?report.skipped_symlink_examples,
+            "links in the imported folder were not copied"
+        );
+    }
+
     Ok(report.entries.into_iter().map(FileEntryDto::from).collect())
 }
 
