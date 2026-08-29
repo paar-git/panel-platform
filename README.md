@@ -67,14 +67,14 @@ installs and opens without it and tells you it is missing, rather than failing
 at launch. Install [Docker Desktop](https://www.docker.com/products/docker-desktop/)
 on Windows, or Docker Engine on Linux.
 
-### These builds are unsigned
+### Signatures
 
-There is no code-signing certificate yet, and the release notes say so rather
-than leaving you to guess:
-
-- **Windows** shows a SmartScreen warning on first run. "More info" → "Run
-  anyway". A signed build would not do this, and training people to click
-  through warnings undoes more security than most controls add.
+- **Windows** downloads are signed with Panel Platform's Azure Trusted Signing
+  certificate. Right-click → **Properties** → **Digital Signatures** shows
+  *realpargit* as the signer. SmartScreen may still warn for a while: its
+  verdict follows how many people have downloaded files from this certificate,
+  not whether the file is signed. If it does, choose "More info" → "Run
+  anyway".
 - **Linux** packages carry no repository signature.
 
 Every release has a `SHA256SUMS.txt`. To check what you downloaded:

@@ -93,6 +93,57 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      # Authenticode. Without a signature Windows shows every downloader
+      # "Windows protected your PC" and offers only "Don't run" until they
+      # find "More info" — so the executables are signed through Azure
+      # Trusted Signing, which is Microsoft's own service and needs no
+      # hardware token in CI.
+      #
+      # It is opt-in on purpose: a fork, or this repository before the Azure
+      # account exists, has none of these configured and must still be able to
+      # cut a release. When `AZURE_CODESIGN_ACCOUNT` is unset the step writes
+      # no config, `tauri-action` gets no extra argument, and the build is
+      # exactly what it was before — unsigned, and honest about it.
+      - name: Set up Azure Trusted Signing
+        id: codesign
+        if: matrix.platform == 'windows-latest'
+        shell: bash
+        env:
+          ENDPOINT: ${{ vars.AZURE_CODESIGN_ENDPOINT }}
+          ACCOUNT: ${{ vars.AZURE_CODESIGN_ACCOUNT }}
+          PROFILE: ${{ vars.AZURE_CODESIGN_PROFILE }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${ACCOUNT:-}" ] || [ -z "${PROFILE:-}" ] || [ -z "${ENDPOINT:-}" ]; then
+            echo "::warning::AZURE_CODESIGN_ENDPOINT/ACCOUNT/PROFILE are not set,"
+            echo "::warning::so the Windows installers will be unsigned and"
+            echo "::warning::SmartScreen will warn about them."
+            echo "args=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          cargo install trusted-signing-cli --locked
+
+          # A separate config file rather than an edit to tauri.conf.json:
+          # `tauri build` merges the two, so a local build stays unsigned and
+          # nobody has to own an Azure account to compile the application.
+          # The path is absolute because the CLI's working directory here is
+          # not the directory this file lives in.
+          config="${GITHUB_WORKSPACE}/apps/desktop/src-tauri/tauri.signing.conf.json"
+          cat > "$config" <<EOF
+          {
+            "\$schema": "https://schema.tauri.app/config/2",
+            "bundle": {
+              "windows": {
+                "signCommand": "trusted-signing-cli -e ${ENDPOINT} -a ${ACCOUNT} -c ${PROFILE} -d \"Panel Platform\" %1"
+              }
+            }
+          }
+          EOF
+          cat "$config"
+          echo "args=--config $config" >> "$GITHUB_OUTPUT"
+
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -101,6 +152,12 @@ jobs:
           # every client would reject the update.
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # Read by `trusted-signing-cli` when the step above configured one.
+          # Unset everywhere else, which is why that step is what decides
+          # whether signing is attempted at all.
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
         with:
           projectPath: apps/desktop
           tagName: ${{ github.event.inputs.tag || github.ref_name }}
@@ -416,14 +473,22 @@ jobs:
             Install [Docker Desktop](https://www.docker.com/products/docker-desktop/)
             on Windows, or Docker Engine on Linux.
 
-            ## These builds are not code-signed
+            ## Signatures
 
-            There is no signing certificate yet, and saying so plainly beats
-            letting you discover it:
+            **Windows** downloads are signed with Panel Platform's Azure
+            Trusted Signing certificate. Before running anything, you can
+            confirm that for yourself: right-click the file, choose
+            **Properties**, then **Digital Signatures**. The signer is
+            *realpargit*.
 
-            - **Windows** shows a SmartScreen warning on first run. Choose
-              **More info**, then **Run anyway**.
-            - **Linux** packages carry no repository signature.
+            SmartScreen may still say **"Windows protected your PC"** for a
+            while. That warning is about how many people have downloaded
+            *this* certificate's files, not about whether the file is signed
+            or safe, and it stops appearing as the certificate accumulates
+            downloads. If you see it, choose **More info**, then **Run
+            anyway**.
+
+            **Linux** packages carry no repository signature.
 
             `SHA256SUMS.txt` is attached. To check what you downloaded:
 
@@ -447,7 +512,7 @@ jobs:
           releaseDraft: true
           prerelease: false
           includeUpdaterJson: true
-          args: ${{ matrix.args }}
+          args: ${{ matrix.args }} ${{ steps.codesign.outputs.args }}
 
   # The setup program: a small binary that downloads the right installer from
   # this release, verifies it, and starts it. Built after `build` rather than
@@ -494,6 +559,36 @@ jobs:
 
       - name: Build
         run: cargo build --release -p panel-platform-setup
+
+      # This is the file the download table recommends first, so it is the one
+      # most people meet SmartScreen through. Signed with the same profile as
+      # the installers it downloads. Signing happens before the upload, and
+      # therefore before `checksums` hashes it — an unsigned hash for a signed
+      # file would fail every verification the release notes ask for.
+      - name: Sign it
+        if: matrix.platform == 'windows-latest'
+        shell: bash
+        env:
+          ENDPOINT: ${{ vars.AZURE_CODESIGN_ENDPOINT }}
+          ACCOUNT: ${{ vars.AZURE_CODESIGN_ACCOUNT }}
+          PROFILE: ${{ vars.AZURE_CODESIGN_PROFILE }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${ACCOUNT:-}" ] || [ -z "${PROFILE:-}" ] || [ -z "${ENDPOINT:-}" ]; then
+            echo "::warning::Azure Trusted Signing is not configured, so"
+            echo "::warning::${{ matrix.asset }} will be unsigned."
+            exit 0
+          fi
+
+          cargo install trusted-signing-cli --locked
+          trusted-signing-cli \
+            -e "$ENDPOINT" -a "$ACCOUNT" -c "$PROFILE" \
+            -d "Panel Platform Setup" \
+            "target/release/${{ matrix.binary }}"
 
       - name: Attach it to the release
         env:
