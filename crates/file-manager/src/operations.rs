@@ -1340,9 +1340,19 @@ fn plan_local_import_unchecked(
                     .ok_or(FileError::Refused("source path contains invalid Unicode"))?
                     .to_string();
                 let relative = join_relative(destination.relative(), &name);
-                top_level_destinations.push(resolve(root, &relative)?.relative().to_string());
                 let child_metadata =
                     std::fs::symlink_metadata(child.path()).map_err(FileError::io)?;
+
+                // Before the destination is registered, not after: a skipped
+                // link stages nothing, so a destination recorded for it would
+                // send the commit looking for a path that was never written —
+                // and would report a conflict for a file that is not coming.
+                if child_metadata.is_symlink() {
+                    skipped_symlinks.push(relative);
+                    continue;
+                }
+
+                top_level_destinations.push(resolve(root, &relative)?.relative().to_string());
                 plan_import_entry(
                     root,
                     &child.path(),
