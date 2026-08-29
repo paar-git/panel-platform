@@ -168,6 +168,38 @@ jobs:
           # otherwise the two most prominent links on the page are the two
           # nobody wanting to *use* the application should click.
           releaseBody: |
+            ## What changed in 0.1.17
+
+            A repair release. Both faults below were reported from a real
+            machine, and both were one rule applied more widely than the thing
+            it was written to prevent.
+
+            **A project with links in it can be imported again.** Dropping a
+            folder that contained a symbolic link stopped the whole import with
+            "symbolic links cannot be imported" — and on Windows a junction
+            counts as one, which is what `npm` and `pnpm` build `node_modules`
+            out of. So importing any real Node project failed, whatever else
+            was in it. Links are now skipped rather than fatal: they are not
+            copied, because a copy is not the place they point at, and they are
+            still never followed, but they no longer veto the thousands of
+            files beside them. What was skipped is counted rather than dropped
+            in silence.
+
+            **Installing a toolchain no longer fails on a machine that has
+            it.** `npm` is `npm.cmd` on Windows, and the search Windows does
+            for a bare program name only ever tries `.exe` — so the step never
+            started, and reported "npm exited with code -1. program not found",
+            a sentence that contradicts itself about a program that had not
+            run. The program is now resolved before it is started, the way the
+            rest of the application already did it.
+
+            **A failure names the thing that failed.** Every step of an install
+            was reported under the language's name, so a project's own
+            `npm install` failing read as "Installing Node.js failed" — sending
+            you to reinstall something that had installed perfectly. And a
+            program that could not be started is no longer described as having
+            exited with a made-up code.
+
             ## What changed in 0.1.16
 
             **A project can be more than one process.** An API next to a web server, or
@@ -396,24 +428,6 @@ jobs:
 
             This release also carries everything in 0.1.10, below.
 
-            ## What changed in 0.1.10
-
-            **Imports now handle real project-shaped drops.** When files,
-            folders or complete project directories are brought into a
-            workspace, the desktop app can group them, detect likely project
-            roots, unwrap project folders when that is the safer landing shape,
-            and show the destination plan before anything is copied.
-
-            **Conflicts are resolved instead of guessed.** Existing files and
-            folders now get an explicit dialog with replace, keep both, skip and
-            relocation choices, backed by a transactional import path so failed
-            or cancelled work rolls back cleanly.
-
-            **Selection and organiser polish.** Explorer selection now supports
-            range selection, rubber-band selection and clipboard-style copy/cut
-            handling, while the import organiser and progress UI make multi-item
-            imports easier to review and cancel.
-
             Earlier releases are listed at https://github.com/paar-git/panel-platform/releases.
 
             ## Download
@@ -473,22 +487,20 @@ jobs:
             Install [Docker Desktop](https://www.docker.com/products/docker-desktop/)
             on Windows, or Docker Engine on Linux.
 
-            ## Signatures
+            ## These builds are not code-signed
 
-            **Windows** downloads are signed with Panel Platform's Azure
-            Trusted Signing certificate. Before running anything, you can
-            confirm that for yourself: right-click the file, choose
-            **Properties**, then **Digital Signatures**. The signer is
-            *realpargit*.
+            There is no signing certificate yet, and saying so plainly beats
+            letting you discover it:
 
-            SmartScreen may still say **"Windows protected your PC"** for a
-            while. That warning is about how many people have downloaded
-            *this* certificate's files, not about whether the file is signed
-            or safe, and it stops appearing as the certificate accumulates
-            downloads. If you see it, choose **More info**, then **Run
-            anyway**.
+            - **Windows** shows a **"Windows protected your PC"** warning on
+              first run, offering only **Don't run** until you choose **More
+              info**, and then **Run anyway**. Nothing is wrong with the file;
+              Windows has simply never seen it signed.
+            - **Linux** packages carry no repository signature.
 
-            **Linux** packages carry no repository signature.
+            The release can sign its Windows builds as soon as a certificate
+            exists — the machinery is in place and waiting on the account — and
+            these notes will say so when it does rather than before.
 
             `SHA256SUMS.txt` is attached. To check what you downloaded:
 

@@ -202,14 +202,16 @@ environment variable — true, and no use to the person reading it.
 
 ## 6. Signing
 
-| Platform | Mechanism                             | State          |
-| -------- | ------------------------------------- | -------------- |
-| Windows  | Authenticode over every `.exe`/`.msi` | Signed         |
-| Linux    | Detached signature over the `.deb`    | **Not signed** |
-| Updates  | Minisign, verified before any write   | Signed         |
+| Platform | Mechanism                             | State           |
+| -------- | ------------------------------------- | --------------- |
+| Windows  | Authenticode over every `.exe`/`.msi` | Wired, inactive |
+| Linux    | Detached signature over the `.deb`    | **Not signed**  |
+| Updates  | Minisign, verified before any write   | Signed          |
 
 Unsigned Windows binaries trip SmartScreen and train users to click through
-warnings, so the Windows artefacts are signed with **Azure Trusted Signing** —
+warnings, so the release can sign the Windows artefacts with **Azure Trusted
+Signing** — inactive until the variables below exist, and as of 0.1.17 they do
+not, so the shipped builds are unsigned and the release notes say so —
 Microsoft's own service, which issues short-lived certificates against an
 identity Microsoft has validated and needs no hardware token on a build
 machine.
