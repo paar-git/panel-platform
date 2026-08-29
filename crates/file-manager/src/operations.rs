@@ -139,6 +139,14 @@ pub struct LocalImportReport {
     pub entries: Vec<FileEntry>,
     pub total_files: u64,
     pub total_bytes: u64,
+    /// Symbolic links and junctions found in the source and not copied.
+    ///
+    /// A count rather than a list because `node_modules` alone can hold
+    /// thousands, and an import that reported every one of them would be
+    /// reporting noise. Zero is the ordinary case and says nothing.
+    pub skipped_symlinks: u64,
+    /// A few of them by name, so the report can point at something real.
+    pub skipped_symlink_examples: Vec<String>,
 }
 
 /// The content of a text file.
@@ -919,7 +927,12 @@ struct ImportPlan {
     top_level_destinations: Vec<String>,
     total_files: u64,
     total_bytes: u64,
+    /// Links met while walking the source, which are not copied.
+    skipped_symlinks: Vec<String>,
 }
+
+/// How many skipped links an import names before it stops listing them.
+const SKIPPED_SYMLINK_EXAMPLES: usize = 10;
 
 /// The prefix every import's staging directory is named with, at the project
 /// root. Shared by the import itself and by the sweep that clears up after one
@@ -1195,6 +1208,13 @@ where
         entries,
         total_files: plan.total_files,
         total_bytes: plan.total_bytes,
+        skipped_symlinks: plan.skipped_symlinks.len() as u64,
+        skipped_symlink_examples: plan
+            .skipped_symlinks
+            .iter()
+            .take(SKIPPED_SYMLINK_EXAMPLES)
+            .cloned()
+            .collect(),
     })
 }
 
@@ -1281,6 +1301,7 @@ fn plan_local_import_unchecked(
 
     let mut entries = Vec::new();
     let mut top_level_destinations = Vec::new();
+    let mut skipped_symlinks: Vec<String> = Vec::new();
     let mut visited = 0usize;
     let mut total_files = 0u64;
     let mut total_bytes = 0u64;
@@ -1292,7 +1313,11 @@ fn plan_local_import_unchecked(
         }
         let metadata = std::fs::symlink_metadata(source).map_err(FileError::io)?;
         if metadata.is_symlink() {
-            return Err(FileError::Refused("symbolic links cannot be imported"));
+            // Same rule as for a nested one, so that dropping a folder and
+            // dropping a folder *and* a link beside it do not disagree about
+            // what happens to the folder.
+            skipped_symlinks.push(source.to_string_lossy().into_owned());
+            continue;
         }
 
         // Unwrapping is only meaningful for a directory. Asking for it on a
@@ -1315,9 +1340,19 @@ fn plan_local_import_unchecked(
                     .ok_or(FileError::Refused("source path contains invalid Unicode"))?
                     .to_string();
                 let relative = join_relative(destination.relative(), &name);
-                top_level_destinations.push(resolve(root, &relative)?.relative().to_string());
                 let child_metadata =
                     std::fs::symlink_metadata(child.path()).map_err(FileError::io)?;
+
+                // Before the destination is registered, not after: a skipped
+                // link stages nothing, so a destination recorded for it would
+                // send the commit looking for a path that was never written —
+                // and would report a conflict for a file that is not coming.
+                if child_metadata.is_symlink() {
+                    skipped_symlinks.push(relative);
+                    continue;
+                }
+
+                top_level_destinations.push(resolve(root, &relative)?.relative().to_string());
                 plan_import_entry(
                     root,
                     &child.path(),
@@ -1328,6 +1363,7 @@ fn plan_local_import_unchecked(
                     &mut total_files,
                     &mut total_bytes,
                     &mut entries,
+                    &mut skipped_symlinks,
                 )?;
             }
             continue;
@@ -1359,7 +1395,17 @@ fn plan_local_import_unchecked(
             &mut total_files,
             &mut total_bytes,
             &mut entries,
+            &mut skipped_symlinks,
         )?;
+    }
+
+    // Skipping a nested link keeps an import going; skipping *everything* the
+    // user asked for and reporting success would be a silent no-op, which is a
+    // worse answer than either copying or refusing.
+    if entries.is_empty() && !skipped_symlinks.is_empty() {
+        return Err(FileError::Refused(
+            "there was nothing to import but links, which are not copied",
+        ));
     }
 
     Ok(ImportPlan {
@@ -1367,6 +1413,7 @@ fn plan_local_import_unchecked(
         top_level_destinations,
         total_files,
         total_bytes,
+        skipped_symlinks,
     })
 }
 
@@ -1381,6 +1428,7 @@ fn plan_import_entry(
     total_files: &mut u64,
     total_bytes: &mut u64,
     entries: &mut Vec<PlannedImport>,
+    skipped: &mut Vec<String>,
 ) -> Result<(), FileError> {
     *visited += 1;
     if *visited > limits.max_walk_entries {
@@ -1389,8 +1437,15 @@ fn plan_import_entry(
         ));
     }
 
+    // Not copied, and not followed either — a copy is not the place the link
+    // points at, and following one would pull in a tree from outside the
+    // import. But it cannot veto the files beside it: any Node project has
+    // links in `node_modules` (junctions on Windows, which `is_symlink` also
+    // reports), and refusing the import over them refused every real project.
+    // `git_clone::refuse_escaping_symlinks` settled this policy already.
     if metadata.is_symlink() {
-        return Err(FileError::Refused("symbolic links cannot be imported"));
+        skipped.push(relative.to_string());
+        return Ok(());
     }
 
     let destination = resolve(root, relative)?;
@@ -1420,6 +1475,7 @@ fn plan_import_entry(
                 total_files,
                 total_bytes,
                 entries,
+                skipped,
             )?;
         }
     } else if metadata.is_file() {
@@ -2162,6 +2218,128 @@ mod tests {
         );
         assert_eq!(progress.last().expect("progress").copied_files, 2);
         assert_eq!(progress.last().expect("progress").copied_bytes, 7);
+    }
+
+    /// Create a link the way this platform actually makes them, returning
+    /// false when the session cannot make one at all.
+    ///
+    /// A junction rather than a symbolic link on Windows, tried second: it
+    /// needs no privilege, and it is what `npm` and `pnpm` actually write into
+    /// `node_modules`. That is the link a real import meets.
+    #[cfg(windows)]
+    fn make_link(target: &Path, link: &Path) -> bool {
+        if std::os::windows::fs::symlink_dir(target, link).is_ok() {
+            return true;
+        }
+        // `cmd` reads a forward slash as the start of a switch, so the paths
+        // have to reach it in Windows form whatever the caller built them from.
+        let windows_form = |path: &Path| path.to_string_lossy().replace('/', "\\");
+        std::process::Command::new("cmd")
+            .args(["/c", "mklink", "/J"])
+            .arg(windows_form(link))
+            .arg(windows_form(target))
+            .output()
+            .map(|out| out.status.success())
+            .unwrap_or(false)
+    }
+
+    #[cfg(unix)]
+    fn make_link(target: &Path, link: &Path) -> bool {
+        std::os::unix::fs::symlink(target, link).is_ok()
+    }
+
+    /// The defect a user met: importing a project reported "symbolic links
+    /// cannot be imported" and copied nothing.
+    ///
+    /// Any Node project has links in `node_modules` — on Windows they are
+    /// junctions, which `is_symlink` also reports — so a single one anywhere
+    /// in the tree destroyed the whole import. `git_clone` had already settled
+    /// the policy this should follow: links inside the tree "are ordinary in
+    /// real repositories". They are not copied, because a copy is not the
+    /// place they point at, but they cannot veto the files beside them.
+    #[test]
+    fn a_link_inside_an_imported_folder_is_skipped_rather_than_failing_the_import() {
+        let p = project();
+        let source_root = p.root.parent().expect("parent").join("RomiPlayoff");
+        std::fs::create_dir_all(source_root.join("src")).expect("dirs");
+        std::fs::create_dir_all(source_root.join("node_modules")).expect("dirs");
+        std::fs::write(source_root.join("src/index.ts"), "hello").expect("write");
+        std::fs::write(source_root.join("package.json"), "{}").expect("write");
+
+        if !make_link(
+            &source_root.join("src"),
+            &source_root.join("node_modules/self"),
+        ) {
+            eprintln!("skipped: this session cannot create links of any kind");
+            return;
+        }
+
+        let report = import_local_paths(
+            &p.root,
+            "",
+            std::slice::from_ref(&source_root),
+            "import-links",
+            &limits(),
+            |_| {},
+            || false,
+        )
+        .expect("a project with links in node_modules must still import");
+
+        assert_eq!(
+            std::fs::read_to_string(p.root.join("RomiPlayoff/src/index.ts")).expect("read"),
+            "hello",
+            "the files beside the link must be copied"
+        );
+        assert!(p.root.join("RomiPlayoff/package.json").is_file());
+        assert!(
+            !p.root.join("RomiPlayoff/node_modules/self").exists(),
+            "the link itself is not copied"
+        );
+        assert_eq!(
+            report.skipped_symlinks, 1,
+            "what was not copied has to be counted, or the import lies"
+        );
+        assert!(
+            report
+                .skipped_symlink_examples
+                .iter()
+                .any(|path| path.contains("self")),
+            "a skipped link must be nameable, got {:?}",
+            report.skipped_symlink_examples
+        );
+    }
+
+    /// Skipping must not turn "import this link" into a silent no-op. The
+    /// user asked for one thing; doing nothing and reporting success would be
+    /// the worst of both answers.
+    #[test]
+    fn importing_nothing_but_a_link_is_refused_rather_than_silently_doing_nothing() {
+        let p = project();
+        let outside = p.root.parent().expect("parent").join("LinkOnly");
+        std::fs::create_dir_all(&outside).expect("dirs");
+        let target = outside.join("real");
+        std::fs::create_dir_all(&target).expect("dirs");
+        let link = outside.join("alias");
+
+        if !make_link(&target, &link) {
+            eprintln!("skipped: this session cannot create links of any kind");
+            return;
+        }
+
+        let result = import_local_paths(
+            &p.root,
+            "",
+            std::slice::from_ref(&link),
+            "import-link-only",
+            &limits(),
+            |_| {},
+            || false,
+        );
+
+        assert!(
+            matches!(result, Err(FileError::Refused(_))),
+            "got {result:?}"
+        );
     }
 
     /// The bug this exists to prevent: a dropped project produced

@@ -397,8 +397,37 @@ fn a_file_larger_than_the_limit_is_refused_before_anything_is_copied() {
     );
 }
 
+/// Create a directory link the way this platform actually makes them.
+///
+/// A junction is tried second on Windows because it needs no privilege, while
+/// `symlink_dir` needs Developer Mode or elevation. It is also what `npm` and
+/// `pnpm` write into `node_modules`, so it is the link a real import meets —
+/// and without it this test silently skips on an ordinary Windows session and
+/// reports a pass it did not earn.
+#[cfg(windows)]
+fn make_link(target: &Path, link: &Path) -> bool {
+    if std::os::windows::fs::symlink_dir(target, link).is_ok() {
+        return true;
+    }
+    // `cmd` reads a forward slash as the start of a switch, so the paths have
+    // to reach it in Windows form whatever they were built from.
+    let windows_form = |path: &Path| path.to_string_lossy().replace('/', "\\");
+    std::process::Command::new("cmd")
+        .args(["/c", "mklink", "/J"])
+        .arg(windows_form(link))
+        .arg(windows_form(target))
+        .output()
+        .map(|out| out.status.success())
+        .unwrap_or(false)
+}
+
+#[cfg(unix)]
+fn make_link(target: &Path, link: &Path) -> bool {
+    std::os::unix::fs::symlink(target, link).is_ok()
+}
+
 #[test]
-fn a_symlink_is_refused_rather_than_followed() {
+fn a_symlink_is_skipped_rather_than_followed() {
     let p = project();
     let source = p.outside.join("incoming");
     std::fs::create_dir_all(&source).expect("dirs");
@@ -406,19 +435,16 @@ fn a_symlink_is_refused_rather_than_followed() {
 
     // A link pointing at its own parent: following it would never terminate.
     let link = source.join("loop");
-    #[cfg(unix)]
-    let made = std::os::unix::fs::symlink(&source, &link).is_ok();
-    #[cfg(windows)]
-    let made = std::os::windows::fs::symlink_dir(&source, &link).is_ok();
-
-    if !made {
-        // Windows needs Developer Mode or elevation to create one. Skipping is
-        // honest; asserting a pass we did not earn is not.
-        eprintln!("skipped: this machine cannot create symlinks");
+    if !make_link(&source, &link) {
+        // Skipping is honest; asserting a pass we did not earn is not.
+        eprintln!("skipped: this machine cannot create links of any kind");
         return;
     }
 
-    let error = import_local_sources(
+    // Reaching the assertions at all is the first half of what this tests:
+    // walking the cycle would not terminate, so a test that returns has
+    // already proved the link was not followed.
+    let report = import_local_sources(
         &p.root,
         "",
         &[ImportSource::unwrapped(&source)],
@@ -427,9 +453,21 @@ fn a_symlink_is_refused_rather_than_followed() {
         |_| {},
         || false,
     )
-    .expect_err("a cycle must not be walked");
+    .expect("a cycle is skipped, not walked, and not fatal");
 
-    assert!(matches!(error, FileError::Refused(_)));
+    // The link is not copied. A copy is not the place it points at, and on
+    // Windows recreating one needs a privilege an ordinary session lacks.
+    assert!(!p.root.join("loop").exists(), "the link must not be copied");
+    assert_eq!(report.skipped_symlinks, 1);
+
+    // And the file beside it still arrives. This is the half that used to be
+    // lost: one link anywhere in a source refused the whole import, and every
+    // Node project has them in `node_modules` — junctions on Windows, which
+    // `is_symlink` also reports.
+    assert_eq!(
+        std::fs::read_to_string(p.root.join("real.txt")).expect("read"),
+        "real"
+    );
 }
 
 #[test]

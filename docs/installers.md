@@ -202,16 +202,50 @@ environment variable — true, and no use to the person reading it.
 
 ## 6. Signing
 
-| Platform | Mechanism                           | State          |
-| -------- | ----------------------------------- | -------------- |
-| Windows  | Authenticode over the installers    | **Not signed** |
-| Linux    | Detached signature over the `.deb`  | **Not signed** |
-| Updates  | Minisign, verified before any write | Signed         |
+| Platform | Mechanism                             | State          |
+| -------- | ------------------------------------- | -------------- |
+| Windows  | Authenticode over every `.exe`/`.msi` | Signed         |
+| Linux    | Detached signature over the `.deb`    | **Not signed** |
+| Updates  | Minisign, verified before any write   | Signed         |
 
 Unsigned Windows binaries trip SmartScreen and train users to click through
-warnings. Until a certificate exists, the release notes and the README say
-plainly that builds are unsigned and how to verify checksums, rather than
-leaving people to guess.
+warnings, so the Windows artefacts are signed with **Azure Trusted Signing** —
+Microsoft's own service, which issues short-lived certificates against an
+identity Microsoft has validated and needs no hardware token on a build
+machine.
+
+Three repository _variables_ select the account, and three _secrets_
+authenticate to it:
+
+| Name                      | Kind     | Example                             |
+| ------------------------- | -------- | ----------------------------------- |
+| `AZURE_CODESIGN_ENDPOINT` | variable | `https://weu.codesigning.azure.net` |
+| `AZURE_CODESIGN_ACCOUNT`  | variable | the Trusted Signing account name    |
+| `AZURE_CODESIGN_PROFILE`  | variable | the certificate profile name        |
+| `AZURE_TENANT_ID`         | secret   | the service principal's tenant      |
+| `AZURE_CLIENT_ID`         | secret   | the service principal               |
+| `AZURE_CLIENT_SECRET`     | secret   | its secret                          |
+
+The service principal needs the **Trusted Signing Certificate Profile Signer**
+role on the account; owning the subscription is not sufficient and does not
+imply it.
+
+The Tauri bundle is signed through `bundle.windows.signCommand`, written into
+`tauri.signing.conf.json` by the release workflow and merged over
+`tauri.conf.json` at build time. That file is generated rather than committed
+so that a clone with no Azure account still builds: when the variables are
+absent the workflow writes nothing, passes no extra `--config`, and produces
+the same unsigned artefacts it always did, with a warning in the log saying so.
+A release cut that way is not broken — it is the old behaviour, and the
+release notes' SmartScreen paragraph still applies to it.
+
+**Signing does not silence SmartScreen on day one.** Azure Trusted Signing
+issues an OV-class certificate, and SmartScreen's verdict follows the
+reputation that certificate accumulates across downloads, not the mere
+presence of a signature. Expect the warning to persist for a while after the
+first signed release and then stop. Only an EV certificate suppresses it
+immediately; that is the trade this chose against, because EV requires a
+hardware token or HSM and costs roughly thirty times as much per year.
 
 ---
 
@@ -313,8 +347,10 @@ program and the in-app updater trust the same key by construction. A file that
 fails either check is deleted rather than run, and nothing is written to disk
 until it has passed. There is no override flag.
 
-The setup program is **unsigned**, like every other Windows artefact here — see
-§6. It says so on its confirmation screen rather than only in this document.
+The setup program is signed like every other Windows artefact here — see §6.
+It is signed in the `bootstrap` job _before_ it is uploaded, and therefore
+before `checksums` hashes it; hashing an unsigned build of a file that ships
+signed would break every verification the release notes ask people to run.
 
 ### `--silent`
 

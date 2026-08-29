@@ -125,7 +125,10 @@ pub fn install(
             describes: step.describes.clone(),
         });
 
-        project_host_toolchain::execute::run(step, host, &display_name)?;
+        // No display name is passed: each step names its own subject, so a
+        // failed `npm install` is reported as the project's dependencies
+        // rather than as the toolchain that installed without complaint.
+        project_host_toolchain::execute::run(step, host)?;
     }
 
     // Success is finding the executable, never a zero exit code: the install

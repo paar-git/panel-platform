@@ -34,6 +34,13 @@ pub struct Step {
     pub elevated: bool,
     pub program: String,
     pub args: Vec<String>,
+    /// What this step installs, named the way a failure should name it.
+    ///
+    /// Per step rather than per plan: the last step of a plan installs the
+    /// *project's* dependencies, and reporting that failure as "Installing
+    /// Node.js failed" names software that installed perfectly and sends the
+    /// user to reinstall it.
+    pub subject: String,
     /// Shown to the user verbatim before anything runs.
     pub describes: String,
 }
@@ -82,6 +89,7 @@ pub fn plan(
             elevated: false,
             program: install.program.clone(),
             args: install.args.clone(),
+            subject: "the project's own dependencies".to_string(),
             describes: format!(
                 "Install the project's own dependencies ({} {})",
                 install.program,
@@ -173,6 +181,7 @@ fn toolchain_steps(runtime: &str, host: &Host) -> Result<Vec<Step>, Blocker> {
                     elevated: true,
                     program: "apt-get".to_string(),
                     args: vec!["update".to_string()],
+                    subject: "the package list".to_string(),
                     describes: "Refresh the package list".to_string(),
                 });
             }
@@ -214,6 +223,7 @@ fn bootstrap_winget() -> Step {
              Microsoft.DesktopAppInstaller_8wekyb3d8bbwe"
                 .to_string(),
         ],
+        subject: "App Installer".to_string(),
         describes: "Enable App Installer, which provides winget".to_string(),
     }
 }
@@ -234,6 +244,7 @@ fn winget_step(package: &str, display_name: &str) -> Step {
             "--accept-package-agreements".to_string(),
             "--accept-source-agreements".to_string(),
         ],
+        subject: display_name.to_string(),
         describes: format!("Install {display_name} ({package}) using winget"),
     }
 }
@@ -254,6 +265,7 @@ fn linux_step(manager: PackageManager, package: &str, display_name: &str) -> Ste
         elevated: true,
         program: program.to_string(),
         args,
+        subject: display_name.to_string(),
         describes: format!(
             "Install {display_name} ({package}) using {}",
             manager.as_str()
@@ -505,6 +517,38 @@ mod tests {
         assert!(
             steps[..steps.len() - 1].iter().all(|step| step.elevated),
             "every install step before it needs elevation"
+        );
+    }
+
+    /// The mislabelling a user met: `npm install` failed and was reported as
+    /// "Installing Node.js (for TypeScript) failed", naming a toolchain that
+    /// had installed without complaint and sending them to reinstall it.
+    ///
+    /// Every step carries what it is installing, so no caller can label them
+    /// all with the name of the language.
+    #[test]
+    fn a_step_names_what_it_installs_rather_than_the_language() {
+        let install = ProjectInstall {
+            program: "npm".to_string(),
+            args: vec!["install".to_string()],
+        };
+        let steps = steps(plan("NODEJS", false, &windows(), Some(&install)));
+        let last = steps.last().expect("a step");
+
+        assert!(
+            !last.subject.contains("Node.js"),
+            "the project's own dependencies are not the toolchain, got {:?}",
+            last.subject
+        );
+        assert!(
+            steps
+                .iter()
+                .any(|step| step.subject == "Node.js" || step.subject.contains("build tools")),
+            "the toolchain steps still name the toolchain, got {steps:#?}"
+        );
+        assert!(
+            steps.iter().all(|step| !step.subject.is_empty()),
+            "a step with no subject would produce a failure that names nothing"
         );
     }
 

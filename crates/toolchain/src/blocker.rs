@@ -49,6 +49,23 @@ pub enum Blocker {
         output: String,
     },
 
+    /// The program never started, so it never exited and has no exit code.
+    ///
+    /// Distinct from [`Blocker::StepFailed`] because the two send the user to
+    /// different places: a failed install means reading an installer's output,
+    /// a missing program means installing that program. Reporting this as a
+    /// step that "exited with code -1" produced a sentence that contradicted
+    /// itself, and named an installer that had in fact never run.
+    #[error(
+        "Installing {display_name} needs `{program}`, which is not a program on \
+         this machine. Nothing was run. Install it, or change the command that \
+         asks for it."
+    )]
+    ProgramNotFound {
+        display_name: String,
+        program: String,
+    },
+
     #[error(
         "{display_name} was installed, but {executable} is still not on this \
          program's PATH. Restart Panel Platform and start the project again."
@@ -76,6 +93,7 @@ impl Blocker {
             Blocker::NoPackageManager { .. }
             | Blocker::NotAuthorised { .. }
             | Blocker::StepFailed { .. }
+            | Blocker::ProgramNotFound { .. }
             | Blocker::StillMissingAfterInstall { .. }
             | Blocker::NotPackagedForPlatform { .. } => true,
             Blocker::RuntimeUnsupported { .. }

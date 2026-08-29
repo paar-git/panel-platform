@@ -11,6 +11,8 @@ dist/
 # Tauri
 apps/desktop/src-tauri/target/
 apps/desktop/src-tauri/gen/
+# Written by the release workflow when Azure Trusted Signing is configured.
+apps/desktop/src-tauri/tauri.signing.conf.json
 
 # Local data — never commit a database or a key
 *.db
