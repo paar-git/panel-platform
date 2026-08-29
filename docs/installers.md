@@ -202,11 +202,11 @@ environment variable — true, and no use to the person reading it.
 
 ## 6. Signing
 
-| Platform | Mechanism                           | State          |
-| -------- | ----------------------------------- | -------------- |
-| Windows  | Authenticode over every `.exe`/`.msi` | Signed       |
-| Linux    | Detached signature over the `.deb`  | **Not signed** |
-| Updates  | Minisign, verified before any write | Signed         |
+| Platform | Mechanism                             | State          |
+| -------- | ------------------------------------- | -------------- |
+| Windows  | Authenticode over every `.exe`/`.msi` | Signed         |
+| Linux    | Detached signature over the `.deb`    | **Not signed** |
+| Updates  | Minisign, verified before any write   | Signed         |
 
 Unsigned Windows binaries trip SmartScreen and train users to click through
 warnings, so the Windows artefacts are signed with **Azure Trusted Signing** —
@@ -214,17 +214,17 @@ Microsoft's own service, which issues short-lived certificates against an
 identity Microsoft has validated and needs no hardware token on a build
 machine.
 
-Three repository *variables* select the account, and three *secrets*
+Three repository _variables_ select the account, and three _secrets_
 authenticate to it:
 
-| Name                       | Kind     | Example                             |
-| -------------------------- | -------- | ----------------------------------- |
-| `AZURE_CODESIGN_ENDPOINT`  | variable | `https://weu.codesigning.azure.net` |
-| `AZURE_CODESIGN_ACCOUNT`   | variable | the Trusted Signing account name    |
-| `AZURE_CODESIGN_PROFILE`   | variable | the certificate profile name        |
-| `AZURE_TENANT_ID`          | secret   | the service principal's tenant      |
-| `AZURE_CLIENT_ID`          | secret   | the service principal               |
-| `AZURE_CLIENT_SECRET`      | secret   | its secret                          |
+| Name                      | Kind     | Example                             |
+| ------------------------- | -------- | ----------------------------------- |
+| `AZURE_CODESIGN_ENDPOINT` | variable | `https://weu.codesigning.azure.net` |
+| `AZURE_CODESIGN_ACCOUNT`  | variable | the Trusted Signing account name    |
+| `AZURE_CODESIGN_PROFILE`  | variable | the certificate profile name        |
+| `AZURE_TENANT_ID`         | secret   | the service principal's tenant      |
+| `AZURE_CLIENT_ID`         | secret   | the service principal               |
+| `AZURE_CLIENT_SECRET`     | secret   | its secret                          |
 
 The service principal needs the **Trusted Signing Certificate Profile Signer**
 role on the account; owning the subscription is not sufficient and does not
@@ -348,7 +348,7 @@ fails either check is deleted rather than run, and nothing is written to disk
 until it has passed. There is no override flag.
 
 The setup program is signed like every other Windows artefact here — see §6.
-It is signed in the `bootstrap` job *before* it is uploaded, and therefore
+It is signed in the `bootstrap` job _before_ it is uploaded, and therefore
 before `checksums` hashes it; hashing an unsigned build of a file that ships
 signed would break every verification the release notes ask people to run.
 

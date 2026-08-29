@@ -71,7 +71,7 @@ on Windows, or Docker Engine on Linux.
 
 - **Windows** downloads are signed with Panel Platform's Azure Trusted Signing
   certificate. Right-click → **Properties** → **Digital Signatures** shows
-  *realpargit* as the signer. SmartScreen may still warn for a while: its
+  _realpargit_ as the signer. SmartScreen may still warn for a while: its
   verdict follows how many people have downloaded files from this certificate,
   not whether the file is signed. If it does, choose "More info" → "Run
   anyway".
